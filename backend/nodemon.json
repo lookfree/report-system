@@ -1,0 +1,19 @@
+{
+  "watch": [
+    "server.js",
+    "routes/",
+    "utils/",
+    "config/",
+    "models/"
+  ],
+  "ignore": [
+    "uploads/",
+    "cache/",
+    "node_modules/",
+    "*.log",
+    "*.json",
+    "*.tmp"
+  ],
+  "ext": "js,json",
+  "delay": 2000
+}

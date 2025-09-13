@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model rs_data_sources {
+  id                  String                @id
+  name                String
+  type                String                @default("postgresql")
+  host                String
+  port                Int
+  database            String
+  username            String
+  password            String
+  active              Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime
+  rs_template_configs rs_template_configs[]
+}
+
+model rs_generated_reports {
+  id                  String              @id
+  templateId          String
+  taskId              String?
+  reportName          String
+  filePath            String
+  generatedAt         DateTime            @default(now())
+  status              ReportStatus        @default(PENDING)
+  rs_scheduled_tasks  rs_scheduled_tasks? @relation(fields: [taskId], references: [id])
+  rs_report_templates rs_report_templates @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model rs_report_templates {
+  id                   String                 @id
+  name                 String
+  originalFileName     String
+  filePath             String
+  structure            Json
+  workflow             String?                @default("流程")
+  selectedProcess      String?
+  emailAddress         String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime
+  rs_generated_reports rs_generated_reports[]
+  rs_scheduled_tasks   rs_scheduled_tasks[]
+  rs_template_configs  rs_template_configs[]
+}
+
+model rs_scheduled_tasks {
+  id                   String                 @id
+  templateId           String
+  name                 String
+  cronExpression       String
+  active               Boolean                @default(true)
+  lastRunTime          DateTime?
+  nextRunTime          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime
+  rs_generated_reports rs_generated_reports[]
+  rs_report_templates  rs_report_templates    @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model rs_template_configs {
+  id                  String              @id
+  templateId          String
+  sectionId           String
+  sectionName         String
+  dataType            DataType
+  value               String?
+  sqlQuery            String?
+  dataSourceId        String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime
+  columnIndex         Int?
+  parentSectionId     String?
+  rs_data_sources     rs_data_sources?    @relation(fields: [dataSourceId], references: [id])
+  rs_report_templates rs_report_templates @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+enum DataType {
+  FIXED
+  MANUAL
+  DYNAMIC
+}
+
+enum ReportStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
