@@ -3,9 +3,9 @@
     <!-- 顶部工具栏 -->
     <div class="editor-toolbar">
       <div class="toolbar-group">
-        <el-button type="primary" @click="saveTemplate">
+        <el-button type="primary" @click="saveTemplate" :loading="saving">
           <el-icon><DocumentChecked /></el-icon>
-          保存模板
+          {{ saving ? '保存中...' : '保存模板' }}
         </el-button>
         <el-button @click="previewTemplate">
           <el-icon><View /></el-icon>
@@ -85,10 +85,10 @@
             A⁻
           </el-button>
         </el-tooltip>
-        <el-select 
-          v-model="currentFontSize" 
-          @change="changeFontSize" 
-          size="small" 
+        <el-select
+          v-model="currentFontSize"
+          @change="changeFontSize"
+          size="small"
           style="width: 80px;"
           placeholder="字号"
         >
@@ -126,6 +126,14 @@
           <el-icon><Download /></el-icon>
           导出Word
         </el-button>
+      </div>
+
+      <!-- 自动保存状态 -->
+      <div class="auto-save-status" v-if="autoSaveEnabled">
+        <el-icon v-if="autoSaving" class="is-loading"><Loading /></el-icon>
+        <span v-if="lastSaveTime">
+          {{ autoSaving ? '自动保存中...' : `已自动保存 ${formatSaveTime(lastSaveTime)}` }}
+        </span>
       </div>
     </div>
 
@@ -400,20 +408,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  DocumentChecked, 
-  View, 
-  Grid, 
-  Connection, 
-  Upload, 
+import {
+  DocumentChecked,
+  View,
+  Grid,
+  Connection,
+  Upload,
   Download,
   UploadFilled,
   Operation,
   Aim,
   Right,
-  Back
+  Back,
+  Loading
 } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
@@ -426,8 +435,24 @@ const content = ref('')
 const templateId = ref(route.params.id || null)
 const templateName = ref('')
 
+// 保存状态
+const saving = ref(false)
+const autoSaving = ref(false)
+const autoSaveEnabled = ref(true)
+const lastSaveTime = ref(null)
+const hasUnsavedChanges = ref(false)
+let autoSaveTimer = null
+
 // 编辑器工具栏状态
 const currentFontSize = ref('12pt')
+let savedSelection = null // 保存的选区
+
+// 表格合并相关状态
+const mergedCells = ref({}) // 存储合并单元格信息
+const selectedCells = ref({}) // 选中的单元格
+const dragStart = ref(null) // 拖拽开始位置
+const dragEnd = ref(null) // 拖拽结束位置
+const mergeMode = ref(false) // 是否处于合并模式
 
 // 对话框状态
 const showFieldDialog = ref(false)
@@ -495,12 +520,83 @@ const getFieldDisplay = (field) => {
 // 处理内容变化
 const handleContentChange = (event) => {
   content.value = event.target.innerHTML
+  hasUnsavedChanges.value = true
+
+  // 触发自动保存
+  if (autoSaveEnabled.value) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => {
+      autoSave()
+    }, 3000) // 3秒后自动保存
+  }
+}
+
+// 格式化保存时间
+const formatSaveTime = (time) => {
+  if (!time) return ''
+  const now = new Date()
+  const saveTime = new Date(time)
+  const diff = Math.floor((now - saveTime) / 1000)
+
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+  return saveTime.toLocaleTimeString('zh-CN')
+}
+
+// 自动保存
+const autoSave = async () => {
+  if (!hasUnsavedChanges.value || saving.value) return
+
+  try {
+    autoSaving.value = true
+
+    const editorElement = document.getElementById('word-editor')
+    let htmlContent = editorElement ? editorElement.innerHTML : content.value
+
+    await api.saveTemplateHtml(templateId.value, htmlContent)
+
+    hasUnsavedChanges.value = false
+    lastSaveTime.value = new Date()
+    console.log('自动保存成功')
+  } catch (error) {
+    console.error('自动保存失败:', error)
+  } finally {
+    autoSaving.value = false
+  }
 }
 
 // 初始化编辑器
 const initEditor = () => {
   console.log('Initializing simple HTML editor')
-  
+
+  // 监听编辑器的选区变化，自动保存有效选区
+  const editorElement = document.getElementById('word-editor')
+  if (editorElement) {
+    // 监听鼠标松开事件（选择文本完成）
+    editorElement.addEventListener('mouseup', () => {
+      setTimeout(() => {
+        const selection = window.getSelection()
+        if (selection.rangeCount > 0 && !selection.getRangeAt(0).collapsed) {
+          // 只有当有实际选中内容时才保存
+          savedSelection = selection.getRangeAt(0).cloneRange()
+          console.log('已保存选区')
+        }
+      }, 10)
+    })
+
+    // 监听键盘事件（通过键盘选择文本）
+    editorElement.addEventListener('keyup', (e) => {
+      // Shift + 方向键选择文本
+      if (e.shiftKey) {
+        const selection = window.getSelection()
+        if (selection.rangeCount > 0 && !selection.getRangeAt(0).collapsed) {
+          savedSelection = selection.getRangeAt(0).cloneRange()
+          console.log('已保存选区（键盘）')
+        }
+      }
+    })
+  }
+
   // 加载模板内容
   setTimeout(() => {
     loadTemplate()
@@ -542,6 +638,18 @@ const loadTemplate = async () => {
     }
     content.value = htmlContent
     console.log('Template content loaded successfully')
+
+    // 加载内容后处理表格
+    setTimeout(() => {
+      // 移除所有表格工具栏（包含行列增减按钮）
+      const toolbars = editorElement.querySelectorAll('.table-toolbar')
+      toolbars.forEach(toolbar => {
+        toolbar.remove()
+      })
+
+      // 增强表格编辑功能
+      enhanceTableEditing()
+    }, 100)
   } catch (error) {
     console.error('Failed to load template:', error)
     ElMessage.error('加载模板失败: ' + (error.response?.data?.error || error.message))
@@ -550,20 +658,29 @@ const loadTemplate = async () => {
 
 // 保存模板
 const saveTemplate = async () => {
+  if (saving.value) return
+
   try {
+    saving.value = true
+
     if (!templateId.value) {
       ElMessage.error('模板ID不存在，无法保存')
       return
     }
-    
+
     // 从 HTML 编辑器获取内容
     const editorElement = document.getElementById('word-editor')
     let htmlContent = editorElement ? editorElement.innerHTML : content.value
-    
+
     await api.saveTemplateHtml(templateId.value, htmlContent)
+
+    hasUnsavedChanges.value = false
+    lastSaveTime.value = new Date()
     ElMessage.success('模板保存成功')
   } catch (error) {
     ElMessage.error('保存失败: ' + (error.response?.data?.error || error.message))
+  } finally {
+    saving.value = false
   }
 }
 
@@ -1432,6 +1549,10 @@ const loadDataSources = async () => {
 
 // 格式化文本函数
 const formatText = (command) => {
+  // 保存并恢复选区
+  saveTextSelection()
+  restoreTextSelection()
+
   document.execCommand(command, false, null)
   const editorElement = document.getElementById('word-editor')
   if (editorElement) {
@@ -1441,6 +1562,10 @@ const formatText = (command) => {
 
 // 文本对齐函数
 const alignText = (alignment) => {
+  // 保存并恢复选区
+  saveTextSelection()
+  restoreTextSelection()
+
   let command = ''
   switch (alignment) {
     case 'left':
@@ -1456,7 +1581,7 @@ const alignText = (alignment) => {
       command = 'justifyFull'
       break
   }
-  
+
   if (command) {
     document.execCommand(command, false, null)
     const editorElement = document.getElementById('word-editor')
@@ -1468,6 +1593,10 @@ const alignText = (alignment) => {
 
 // 调整缩进函数
 const adjustIndent = (direction) => {
+  // 保存并恢复选区
+  saveTextSelection()
+  restoreTextSelection()
+
   const command = direction === 'increase' ? 'indent' : 'outdent'
   document.execCommand(command, false, null)
   const editorElement = document.getElementById('word-editor')
@@ -1476,20 +1605,37 @@ const adjustIndent = (direction) => {
   }
 }
 
+// 保存文本选区
+const saveTextSelection = () => {
+  const selection = window.getSelection()
+  if (selection.rangeCount > 0) {
+    savedSelection = selection.getRangeAt(0).cloneRange()
+  }
+}
+
+// 恢复文本选区
+const restoreTextSelection = () => {
+  if (savedSelection) {
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(savedSelection)
+  }
+}
+
 // 更改字体大小函数
 const changeFontSize = (size) => {
+  // 检查是否有保存的选区
+  if (!savedSelection || savedSelection.collapsed) {
+    ElMessage.warning('请先选中要修改的文字')
+    return
+  }
+
+  // 恢复保存的选区
   const selection = window.getSelection()
-  if (selection.rangeCount === 0) {
-    ElMessage.warning('请先选中要修改的文字')
-    return
-  }
-  
+  selection.removeAllRanges()
+  selection.addRange(savedSelection)
+
   const range = selection.getRangeAt(0)
-  
-  if (range.collapsed) {
-    ElMessage.warning('请先选中要修改的文字')
-    return
-  }
   
   try {
     // 检查是否已经在span标签内
@@ -1537,6 +1683,11 @@ const changeFontSize = (size) => {
 
 // 字体大小增减函数
 const adjustFontSize = (direction) => {
+  // 先保存选区，防止点击按钮时失去选区
+  saveTextSelection()
+  // 立即恢复选区
+  restoreTextSelection()
+
   const selection = window.getSelection()
   if (selection.rangeCount === 0 || selection.getRangeAt(0).collapsed) {
     ElMessage.warning('请先选中要修改的文字')
@@ -1592,48 +1743,1002 @@ const adjustFontSize = (direction) => {
 const enhanceTableEditing = () => {
   const editorElement = document.getElementById('word-editor')
   if (!editorElement) return
-  
+
   // 为所有表格添加编辑增强
   const tables = editorElement.querySelectorAll('table')
   tables.forEach(table => {
-    // 添加表格工具栏
-    if (!table.previousElementSibling?.classList.contains('table-toolbar')) {
-      const toolbar = document.createElement('div')
-      toolbar.className = 'table-toolbar'
-      toolbar.innerHTML = `
-        <div class="table-controls">
-          <button class="table-btn" onclick="addTableRow(this)" title="添加行">
-            <span>+行</span>
-          </button>
-          <button class="table-btn" onclick="addTableColumn(this)" title="添加列">
-            <span>+列</span>
-          </button>
-          <button class="table-btn" onclick="deleteTableRow(this)" title="删除行">
-            <span>-行</span>
-          </button>
-          <button class="table-btn" onclick="deleteTableColumn(this)" title="删除列">
-            <span>-列</span>
-          </button>
-        </div>
-      `
-      table.parentNode.insertBefore(toolbar, table)
-    }
-    
-    // 为表格单元格添加右键菜单支持
+    // 设置表格样式使其可调整大小
+    table.style.tableLayout = 'fixed'
+    table.style.width = table.style.width || '100%'
+
+    // 为表格单元格添加编辑监听
     const cells = table.querySelectorAll('td, th')
     cells.forEach(cell => {
+      // 使单元格可编辑
+      if (!cell.hasAttribute('contenteditable')) {
+        cell.setAttribute('contenteditable', 'true')
+      }
+
+      // 设置单元格样式
+      cell.style.position = 'relative'
+      cell.style.overflow = 'hidden'
+
+      // 如果单元格没有宽度，设置默认宽度
+      if (!cell.style.width) {
+        cell.style.width = '150px'
+        cell.style.minWidth = '100px'
+      }
+
+      // 如果单元格没有高度，设置默认高度
+      if (!cell.style.height) {
+        cell.style.height = '40px'
+        cell.style.minHeight = '30px'
+      }
+
+      // 移除旧的事件监听器（如果存在）
+      cell.removeEventListener('input', handleCellEdit)
+      cell.removeEventListener('blur', handleCellBlur)
+      cell.removeEventListener('mousedown', handleCellMouseDown)
+      cell.removeEventListener('mouseenter', handleCellMouseEnter)
+      cell.removeEventListener('mouseup', handleCellMouseUp)
+
+      // 添加新的事件监听器
+      cell.addEventListener('input', handleCellEdit)
+      cell.addEventListener('blur', handleCellBlur)
+
+      // 添加拖拽选择事件
+      cell.addEventListener('mousedown', handleCellMouseDown)
+      cell.addEventListener('mouseenter', handleCellMouseEnter)
+      cell.addEventListener('mouseup', handleCellMouseUp)
+
+      // 添加右键菜单支持
       cell.addEventListener('contextmenu', showCellContextMenu)
+
+      // 添加列调整大小功能
+      addColumnResizeHandle(cell)
+
+      // 添加列边框拖拽功能
+      addColumnBorderResize(cell)
+
+      // 只为每行的第一个单元格添加行调整大小功能
+      if (cell.cellIndex === 0) {
+        addRowResizeHandle(cell)
+      }
     })
   })
+}
+
+// 添加列调整大小手柄
+const addColumnResizeHandle = (cell) => {
+  // 检查是否已经有调整手柄
+  if (cell.querySelector('.resize-handle')) return
+
+  // 创建调整手柄（放在右边框）
+  const resizeHandle = document.createElement('div')
+  resizeHandle.className = 'resize-handle'
+  resizeHandle.style.cssText = `
+    position: absolute;
+    right: -3px;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 100;
+  `
+
+  // 鼠标悬停时显示视觉效果
+  resizeHandle.addEventListener('mouseenter', () => {
+    resizeHandle.style.background = 'rgba(33, 150, 243, 0.5)'
+    // 高亮整列边框
+    const table = cell.closest('table')
+    const colIndex = cell.cellIndex
+    const rows = table.querySelectorAll('tr')
+    rows.forEach(row => {
+      if (row.cells[colIndex]) {
+        row.cells[colIndex].style.borderRight = '2px solid rgba(33, 150, 243, 0.5)'
+      }
+    })
+  })
+
+  resizeHandle.addEventListener('mouseleave', () => {
+    resizeHandle.style.background = 'transparent'
+    // 恢复边框
+    const table = cell.closest('table')
+    const colIndex = cell.cellIndex
+    const rows = table.querySelectorAll('tr')
+    rows.forEach(row => {
+      if (row.cells[colIndex]) {
+        row.cells[colIndex].style.borderRight = ''
+      }
+    })
+  })
+
+  // 处理拖拽调整大小
+  let isResizing = false
+  let startX = 0
+  let startWidth = 0
+  let nextCellStartWidth = 0
+  let nextCell = null
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isResizing = true
+    startX = e.pageX
+    startWidth = cell.offsetWidth
+
+    // 获取下一个单元格（用于调整间距）
+    const row = cell.parentElement
+    nextCell = row.cells[cell.cellIndex + 1] || null
+    if (nextCell) {
+      nextCellStartWidth = nextCell.offsetWidth
+    }
+
+    // 创建拖拽指示线
+    const dragLine = document.createElement('div')
+    dragLine.id = 'column-drag-line'
+    dragLine.style.cssText = `
+      position: fixed;
+      top: ${cell.getBoundingClientRect().top}px;
+      left: ${e.pageX}px;
+      width: 2px;
+      height: ${cell.closest('table').offsetHeight}px;
+      background: #2196f3;
+      z-index: 1000;
+      pointer-events: none;
+    `
+    document.body.appendChild(dragLine)
+
+    // 添加临时事件监听器
+    const handleMouseMove = (e) => {
+      if (!isResizing) return
+
+      // 更新拖拽线位置
+      const dragLine = document.getElementById('column-drag-line')
+      if (dragLine) {
+        dragLine.style.left = e.pageX + 'px'
+      }
+
+      const diff = e.pageX - startX
+      const newWidth = Math.max(50, startWidth + diff) // 最小宽度50px
+
+      // 同步调整整列的宽度
+      const table = cell.closest('table')
+      const colIndex = cell.cellIndex
+      const rows = table.querySelectorAll('tr')
+
+      rows.forEach(row => {
+        if (row.cells[colIndex]) {
+          row.cells[colIndex].style.width = newWidth + 'px'
+        }
+        // 如果有下一列，调整其宽度以保持表格总宽度
+        if (nextCell && row.cells[colIndex + 1]) {
+          const nextNewWidth = Math.max(50, nextCellStartWidth - diff)
+          row.cells[colIndex + 1].style.width = nextNewWidth + 'px'
+        }
+      })
+    }
+
+    const handleMouseUp = () => {
+      isResizing = false
+
+      // 移除拖拽线
+      const dragLine = document.getElementById('column-drag-line')
+      if (dragLine) {
+        dragLine.remove()
+      }
+
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+
+      // 触发内容更新
+      const editorElement = document.getElementById('word-editor')
+      content.value = editorElement.innerHTML
+      hasUnsavedChanges.value = true
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  })
+
+  cell.appendChild(resizeHandle)
+}
+
+// 添加列边框拖拽功能
+const addColumnBorderResize = (cell) => {
+  // 为单元格添加边框悬停检测
+  cell.addEventListener('mousemove', (e) => {
+    const rect = cell.getBoundingClientRect()
+    const distanceFromRightBorder = rect.right - e.clientX
+    const distanceFromLeftBorder = e.clientX - rect.left
+
+    // 检查是否靠近右边框（5px范围内）
+    if (distanceFromRightBorder <= 5 && distanceFromRightBorder >= 0) {
+      cell.style.cursor = 'col-resize'
+      cell.setAttribute('data-resize-border', 'right')
+    }
+    // 检查是否靠近左边框（5px范围内）且不是第一列
+    else if (distanceFromLeftBorder <= 5 && distanceFromLeftBorder >= 0 && cell.cellIndex > 0) {
+      cell.style.cursor = 'col-resize'
+      cell.setAttribute('data-resize-border', 'left')
+    }
+    else {
+      cell.style.cursor = 'text'
+      cell.removeAttribute('data-resize-border')
+    }
+  })
+
+  // 鼠标离开时重置光标
+  cell.addEventListener('mouseleave', () => {
+    cell.style.cursor = 'text'
+    cell.removeAttribute('data-resize-border')
+  })
+
+  // 处理边框拖拽
+  cell.addEventListener('mousedown', (e) => {
+    const resizeBorder = cell.getAttribute('data-resize-border')
+    if (!resizeBorder) return
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    let targetCell = cell
+    let nextCell = null
+
+    if (resizeBorder === 'right') {
+      // 拖拽右边框：调整当前列和下一列
+      const row = cell.parentElement
+      nextCell = row.cells[cell.cellIndex + 1] || null
+    } else if (resizeBorder === 'left') {
+      // 拖拽左边框：调整前一列和当前列
+      const row = cell.parentElement
+      targetCell = row.cells[cell.cellIndex - 1]
+      nextCell = cell
+    }
+
+    if (!targetCell || !nextCell) return
+
+    const startX = e.pageX
+    const targetStartWidth = targetCell.offsetWidth
+    const nextStartWidth = nextCell.offsetWidth
+
+    // 创建拖拽指示线
+    const dragLine = document.createElement('div')
+    dragLine.id = 'border-drag-line'
+    dragLine.style.cssText = `
+      position: fixed;
+      top: ${targetCell.getBoundingClientRect().top}px;
+      left: ${e.pageX}px;
+      width: 2px;
+      height: ${targetCell.closest('table').offsetHeight}px;
+      background: #f44336;
+      z-index: 1000;
+      pointer-events: none;
+    `
+    document.body.appendChild(dragLine)
+
+    const handleMouseMove = (e) => {
+      // 更新拖拽线位置
+      const dragLine = document.getElementById('border-drag-line')
+      if (dragLine) {
+        dragLine.style.left = e.pageX + 'px'
+      }
+
+      const diff = e.pageX - startX
+      const newTargetWidth = Math.max(50, targetStartWidth + diff)
+      const newNextWidth = Math.max(50, nextStartWidth - diff)
+
+      // 同步调整整列的宽度
+      const table = targetCell.closest('table')
+      const targetColIndex = targetCell.cellIndex
+      const nextColIndex = nextCell.cellIndex
+      const rows = table.querySelectorAll('tr')
+
+      rows.forEach(row => {
+        if (row.cells[targetColIndex]) {
+          row.cells[targetColIndex].style.width = newTargetWidth + 'px'
+        }
+        if (row.cells[nextColIndex]) {
+          row.cells[nextColIndex].style.width = newNextWidth + 'px'
+        }
+      })
+    }
+
+    const handleMouseUp = () => {
+      // 移除拖拽线
+      const dragLine = document.getElementById('border-drag-line')
+      if (dragLine) {
+        dragLine.remove()
+      }
+
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+
+      // 重置光标
+      cell.style.cursor = 'text'
+      cell.removeAttribute('data-resize-border')
+
+      // 触发内容更新
+      const editorElement = document.getElementById('word-editor')
+      content.value = editorElement.innerHTML
+      hasUnsavedChanges.value = true
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  })
+}
+
+// 添加行调整大小手柄
+const addRowResizeHandle = (cell) => {
+  // 检查是否已经有调整手柄
+  if (cell.querySelector('.row-resize-handle')) return
+
+  // 创建调整手柄
+  const resizeHandle = document.createElement('div')
+  resizeHandle.className = 'row-resize-handle'
+  resizeHandle.style.cssText = `
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 5px;
+    cursor: row-resize;
+    background: transparent;
+    z-index: 1;
+  `
+
+  // 鼠标悬停时显示视觉效果
+  resizeHandle.addEventListener('mouseenter', () => {
+    resizeHandle.style.background = 'rgba(76, 175, 80, 0.3)'
+  })
+
+  resizeHandle.addEventListener('mouseleave', () => {
+    resizeHandle.style.background = 'transparent'
+  })
+
+  // 处理拖拽调整大小
+  let isResizing = false
+  let startY = 0
+  let startHeight = 0
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isResizing = true
+    startY = e.pageY
+
+    const row = cell.parentElement
+    startHeight = row.offsetHeight
+
+    // 添加临时事件监听器
+    const handleMouseMove = (e) => {
+      if (!isResizing) return
+
+      const diff = e.pageY - startY
+      const newHeight = Math.max(30, startHeight + diff) // 最小高度30px
+
+      // 设置整行的高度
+      const row = cell.parentElement
+      row.style.height = newHeight + 'px'
+
+      // 同步设置该行所有单元格的高度
+      for (let i = 0; i < row.cells.length; i++) {
+        row.cells[i].style.height = newHeight + 'px'
+      }
+    }
+
+    const handleMouseUp = () => {
+      isResizing = false
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+
+      // 触发内容更新
+      const editorElement = document.getElementById('word-editor')
+      content.value = editorElement.innerHTML
+      hasUnsavedChanges.value = true
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  })
+
+  cell.appendChild(resizeHandle)
+}
+
+// 处理单元格鼠标按下（开始拖拽选择）
+const handleCellMouseDown = (event) => {
+  const cell = event.target.closest('td, th')
+  if (!cell || !mergeMode.value) return
+
+  event.preventDefault()
+  const row = cell.parentElement.rowIndex
+  const col = cell.cellIndex
+
+  dragStart.value = { row, col }
+  dragEnd.value = { row, col }
+
+  // 添加选中样式
+  updateSelectedCells()
+}
+
+// 处理单元格鼠标进入（拖拽选择中）
+const handleCellMouseEnter = (event) => {
+  const cell = event.target.closest('td, th')
+  if (!cell || !mergeMode.value || !dragStart.value) return
+
+  if (event.buttons === 1) { // 鼠标左键按下状态
+    const row = cell.parentElement.rowIndex
+    const col = cell.cellIndex
+    dragEnd.value = { row, col }
+    updateSelectedCells()
+  }
+}
+
+// 处理单元格鼠标释放（结束拖拽选择）
+const handleCellMouseUp = (event) => {
+  const cell = event.target.closest('td, th')
+  if (!cell || !mergeMode.value || !dragStart.value) return
+
+  const row = cell.parentElement.rowIndex
+  const col = cell.cellIndex
+  dragEnd.value = { row, col }
+  updateSelectedCells()
+
+  // 自动执行合并
+  if (dragStart.value && dragEnd.value) {
+    const rowDiff = Math.abs(dragEnd.value.row - dragStart.value.row)
+    const colDiff = Math.abs(dragEnd.value.col - dragStart.value.col)
+    if (rowDiff > 0 || colDiff > 0) {
+      // 有多个单元格被选中，执行合并
+      mergeCells()
+    }
+  }
+}
+
+// 更新选中的单元格样式
+const updateSelectedCells = () => {
+  // 清除之前的选中样式
+  const cells = document.querySelectorAll('.cell-selecting')
+  cells.forEach(cell => {
+    cell.classList.remove('cell-selecting')
+  })
+
+  if (!dragStart.value || !dragEnd.value) return
+
+  const table = document.querySelector('#word-editor table')
+  if (!table) return
+
+  const minRow = Math.min(dragStart.value.row, dragEnd.value.row)
+  const maxRow = Math.max(dragStart.value.row, dragEnd.value.row)
+  const minCol = Math.min(dragStart.value.col, dragEnd.value.col)
+  const maxCol = Math.max(dragStart.value.col, dragEnd.value.col)
+
+  // 添加选中样式
+  for (let r = minRow; r <= maxRow; r++) {
+    for (let c = minCol; c <= maxCol; c++) {
+      const cell = table.rows[r] && table.rows[r].cells[c]
+      if (cell) {
+        cell.classList.add('cell-selecting')
+      }
+    }
+  }
+}
+
+// 处理单元格编辑
+const handleCellEdit = (event) => {
+  const editorElement = document.getElementById('word-editor')
+  content.value = editorElement.innerHTML
+  hasUnsavedChanges.value = true
+
+  // 重置自动保存定时器
+  if (autoSaveEnabled.value) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => {
+      autoSave()
+    }, 3000)
+  }
+}
+
+// 处理单元格失焦
+const handleCellBlur = (event) => {
+  // 立即触发一次内容更新
+  const editorElement = document.getElementById('word-editor')
+  content.value = editorElement.innerHTML
+  console.log('表格单元格编辑完成')
+}
+
+// 切换合并模式
+const toggleMergeMode = () => {
+  mergeMode.value = !mergeMode.value
+  if (!mergeMode.value) {
+    // 退出合并模式时清空选择
+    clearCellSelection()
+  }
+  ElMessage.info(mergeMode.value ? '进入合并模式，拖拽选择单元格' : '退出合并模式')
+}
+
+// 合并选中的单元格
+const mergeCells = () => {
+  if (!dragStart.value || !dragEnd.value) {
+    ElMessage.warning('请先拖拽选择要合并的单元格')
+    return
+  }
+
+  try {
+    const table = document.querySelector('#word-editor table')
+    if (!table) return
+
+    // 计算选择范围
+    const minRow = Math.min(dragStart.value.row, dragEnd.value.row)
+    const maxRow = Math.max(dragStart.value.row, dragEnd.value.row)
+    const minCol = Math.min(dragStart.value.col, dragEnd.value.col)
+    const maxCol = Math.max(dragStart.value.col, dragEnd.value.col)
+
+    const rowspan = maxRow - minRow + 1
+    const colspan = maxCol - minCol + 1
+
+    // 获取第一个单元格
+    const firstCell = table.rows[minRow].cells[minCol]
+    if (!firstCell) return
+
+    // 收集所有单元格的内容
+    let mergedContent = ''
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = table.rows[r] && table.rows[r].cells[c]
+        if (cell && cell.innerHTML.trim()) {
+          if (mergedContent) mergedContent += '<br>'
+          mergedContent += cell.innerHTML
+        }
+      }
+    }
+
+    // 设置合并属性
+    firstCell.setAttribute('rowspan', rowspan)
+    firstCell.setAttribute('colspan', colspan)
+    firstCell.innerHTML = mergedContent
+
+    // 隐藏其他单元格
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        if (r !== minRow || c !== minCol) {
+          const cell = table.rows[r] && table.rows[r].cells[c]
+          if (cell) {
+            cell.style.display = 'none'
+            cell.setAttribute('data-merged', 'true')
+            cell.setAttribute('data-merge-parent', `${minRow}_${minCol}`)
+            cell.setAttribute('data-row', r.toString())
+            cell.setAttribute('data-col', c.toString())
+          }
+        }
+      }
+    }
+
+    // 保存合并信息
+    const mergeKey = `${minRow}_${minCol}`
+    if (!mergedCells.value.table) {
+      mergedCells.value.table = {}
+    }
+    mergedCells.value.table[mergeKey] = {
+      startRow: minRow,
+      startCol: minCol,
+      rowspan: rowspan,
+      colspan: colspan
+    }
+
+    // 清除选择
+    clearCellSelection()
+    // 退出合并模式
+    mergeMode.value = false
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('单元格已合并')
+  } catch (error) {
+    console.error('合并单元格失败:', error)
+    ElMessage.error('合并单元格失败，请重试')
+  }
+}
+
+// 拆分单元格
+const splitCell = (cell) => {
+  if (!cell) {
+    ElMessage.warning('请先选择要拆分的单元格')
+    return
+  }
+
+  const rowSpan = parseInt(cell.getAttribute('rowspan')) || 1
+  const colSpan = parseInt(cell.getAttribute('colspan')) || 1
+
+  if (rowSpan === 1 && colSpan === 1) {
+    ElMessage.warning('该单元格未被合并，无需拆分')
+    return
+  }
+
+  try {
+    const table = cell.closest('table')
+    const rowIndex = cell.parentElement.rowIndex
+    const colIndex = cell.cellIndex
+
+    // 保存原单元格内容
+    const originalContent = cell.innerHTML
+
+    // 重置合并属性
+    cell.removeAttribute('rowspan')
+    cell.removeAttribute('colspan')
+    cell.innerHTML = originalContent // 保留内容在第一个单元格
+
+    // 恢复被隐藏的单元格
+    for (let r = rowIndex; r < rowIndex + rowSpan; r++) {
+      for (let c = colIndex; c < colIndex + colSpan; c++) {
+        if (r !== rowIndex || c !== colIndex) {
+          // 找到所有被隐藏的单元格并显示它们
+          const allCells = table.querySelectorAll(`td[data-merge-parent="${rowIndex}_${colIndex}"], th[data-merge-parent="${rowIndex}_${colIndex}"]`)
+          allCells.forEach(hiddenCell => {
+            const hiddenRow = parseInt(hiddenCell.getAttribute('data-row')) || r
+            const hiddenCol = parseInt(hiddenCell.getAttribute('data-col')) || c
+            if (hiddenRow === r && hiddenCol === c) {
+              hiddenCell.style.display = ''
+              hiddenCell.removeAttribute('data-merged')
+              hiddenCell.removeAttribute('data-merge-parent')
+              hiddenCell.innerHTML = '' // 清空内容
+              hiddenCell.setAttribute('contenteditable', 'true')
+            }
+          })
+
+          // 如果没找到隐藏的单元格，创建新的
+          const row = table.rows[r]
+          if (row && !row.cells[c]) {
+            const newCell = document.createElement('td')
+            newCell.innerHTML = ''
+            newCell.setAttribute('contenteditable', 'true')
+
+            // 找到正确的插入位置
+            let insertBeforeCell = null
+            for (let i = c + 1; i < row.cells.length; i++) {
+              if (!row.cells[i].hasAttribute('data-merged')) {
+                insertBeforeCell = row.cells[i]
+                break
+              }
+            }
+
+            if (insertBeforeCell) {
+              row.insertBefore(newCell, insertBeforeCell)
+            } else {
+              row.appendChild(newCell)
+            }
+          }
+        }
+      }
+    }
+
+    // 删除合并信息
+    const mergeKey = `${rowIndex}_${colIndex}`
+    if (mergedCells.value.table && mergedCells.value.table[mergeKey]) {
+      delete mergedCells.value.table[mergeKey]
+    }
+
+    // 重新增强表格编辑功能
+    setTimeout(() => {
+      enhanceTableEditing()
+    }, 100)
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('单元格已拆分')
+  } catch (error) {
+    console.error('拆分单元格失败:', error)
+    ElMessage.error('拆分单元格失败，请重试')
+  }
+}
+
+// 清除单元格选择
+const clearCellSelection = () => {
+  // 清除所有选中样式
+  const cells = document.querySelectorAll('.cell-selected, .cell-selecting')
+  cells.forEach(cell => {
+    cell.classList.remove('cell-selected', 'cell-selecting')
+  })
+
+  dragStart.value = null
+  dragEnd.value = null
+  selectedCells.value = {}
+}
+
+// 添加表格行
+const addTableRow = (cell) => {
+  try {
+    const table = cell.closest('table')
+    const currentRow = cell.parentElement
+    const rowIndex = currentRow.rowIndex
+
+    // 创建新行
+    const newRow = table.insertRow(rowIndex + 1)
+
+    // 复制当前行的高度
+    if (currentRow.style.height) {
+      newRow.style.height = currentRow.style.height
+    } else {
+      newRow.style.height = '40px'
+      newRow.style.minHeight = '30px'
+    }
+
+    // 添加与当前行相同数量的单元格，并复制宽度
+    const cellCount = currentRow.cells.length
+    for (let i = 0; i < cellCount; i++) {
+      const newCell = newRow.insertCell()
+      newCell.innerHTML = ''
+      newCell.setAttribute('contenteditable', 'true')
+
+      // 复制当前行单元格的宽度和高度
+      const currentCell = currentRow.cells[i]
+      if (currentCell.style.width) {
+        newCell.style.width = currentCell.style.width
+      } else {
+        // 设置默认宽度
+        newCell.style.width = '150px'
+        newCell.style.minWidth = '100px'
+      }
+
+      // 设置高度和padding
+      newCell.style.height = '40px'
+      newCell.style.minHeight = '30px'
+      newCell.style.padding = '8px'
+      newCell.style.verticalAlign = 'middle'
+    }
+
+    // 重新增强表格编辑功能
+    setTimeout(() => {
+      enhanceTableEditing()
+    }, 100)
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('已添加新行')
+  } catch (error) {
+    console.error('添加行失败:', error)
+    ElMessage.error('添加行失败，请重试')
+  }
+}
+
+// 添加表格列
+const addTableColumn = (cell) => {
+  try {
+    const table = cell.closest('table')
+    const colIndex = cell.cellIndex
+
+    // 为每一行添加新单元格
+    for (let i = 0; i < table.rows.length; i++) {
+      const row = table.rows[i]
+      const newCell = row.insertCell(colIndex + 1)
+      newCell.innerHTML = ''
+      newCell.setAttribute('contenteditable', 'true')
+
+      // 设置宽度
+      newCell.style.width = '150px'
+      newCell.style.minWidth = '100px'
+
+      // 设置高度（从同行的其他单元格复制）
+      if (row.cells[colIndex] && row.cells[colIndex].style.height) {
+        newCell.style.height = row.cells[colIndex].style.height
+      } else {
+        newCell.style.height = '40px'
+        newCell.style.minHeight = '30px'
+      }
+
+      newCell.style.padding = '8px'
+      newCell.style.verticalAlign = 'middle'
+    }
+
+    // 重新增强表格编辑功能
+    setTimeout(() => {
+      enhanceTableEditing()
+    }, 100)
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('已添加新列')
+  } catch (error) {
+    console.error('添加列失败:', error)
+    ElMessage.error('添加列失败，请重试')
+  }
+}
+
+// 删除表格行
+const deleteTableRow = (cell) => {
+  try {
+    const table = cell.closest('table')
+    const rowIndex = cell.parentElement.rowIndex
+
+    // 至少保留一行
+    if (table.rows.length <= 1) {
+      ElMessage.warning('表格至少需要保留一行')
+      return
+    }
+
+    table.deleteRow(rowIndex)
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('已删除行')
+  } catch (error) {
+    console.error('删除行失败:', error)
+    ElMessage.error('删除行失败，请重试')
+  }
+}
+
+// 删除表格列
+const deleteTableColumn = (cell) => {
+  try {
+    const table = cell.closest('table')
+    const colIndex = cell.cellIndex
+
+    // 至少保留一列
+    const firstRow = table.rows[0]
+    if (firstRow && firstRow.cells.length <= 1) {
+      ElMessage.warning('表格至少需要保留一列')
+      return
+    }
+
+    // 从每一行删除对应的单元格
+    for (let i = 0; i < table.rows.length; i++) {
+      const row = table.rows[i]
+      if (row.cells[colIndex]) {
+        row.deleteCell(colIndex)
+      }
+    }
+
+    // 更新内容
+    const editorElement = document.getElementById('word-editor')
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+
+    ElMessage.success('已删除列')
+  } catch (error) {
+    console.error('删除列失败:', error)
+    ElMessage.error('删除列失败，请重试')
+  }
 }
 
 // 显示单元格右键菜单
 const showCellContextMenu = (event) => {
   event.preventDefault()
-  
-  // 这里可以添加右键菜单的实现
-  // 暂时使用简单的提示
-  ElMessage.info('右键菜单功能开发中，可使用工具栏进行表格操作')
+
+  const cell = event.target.closest('td, th')
+  if (!cell) return
+
+  // 创建右键菜单
+  const menu = document.createElement('div')
+  menu.className = 'cell-context-menu'
+  menu.style.cssText = `
+    position: fixed;
+    left: ${event.clientX}px;
+    top: ${event.clientY}px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    padding: 4px 0;
+    z-index: 9999;
+    min-width: 150px;
+  `
+
+  // 菜单项
+  const menuItems = []
+
+  // 表格操作菜单
+  menuItems.push(
+    {
+      label: '➕ 在下方插入行',
+      action: () => addTableRow(cell)
+    },
+    {
+      label: '➕ 在右侧插入列',
+      action: () => addTableColumn(cell)
+    },
+    {
+      label: '➖ 删除当前行',
+      action: () => deleteTableRow(cell),
+      style: 'color: #f56c6c;'
+    },
+    {
+      label: '➖ 删除当前列',
+      action: () => deleteTableColumn(cell),
+      style: 'color: #f56c6c;'
+    },
+    {
+      label: '─────────',
+      disabled: true,
+      style: 'padding: 2px 20px; color: #ddd; cursor: default;'
+    }
+  )
+
+  // 检查是否是合并的单元格
+  const rowspan = parseInt(cell.getAttribute('rowspan')) || 1
+  const colspan = parseInt(cell.getAttribute('colspan')) || 1
+  const isMerged = rowspan > 1 || colspan > 1
+
+  if (isMerged) {
+    menuItems.push({
+      label: '↗️ 拆分单元格',
+      action: () => splitCell(cell)
+    })
+  }
+
+  // 添加合并模式切换
+  menuItems.push({
+    label: mergeMode.value ? '✖️ 退出合并模式' : '🔗 进入合并模式',
+    action: () => toggleMergeMode()
+  })
+
+  // 添加菜单项
+  menuItems.forEach(item => {
+    const menuItem = document.createElement('div')
+    menuItem.textContent = item.label
+    menuItem.style.cssText = `
+      padding: 8px 20px;
+      cursor: ${item.disabled ? 'default' : 'pointer'};
+      color: ${item.disabled ? '#999' : '#333'};
+      font-size: 14px;
+    `
+
+    if (!item.disabled) {
+      menuItem.onmouseover = () => {
+        menuItem.style.backgroundColor = '#f0f0f0'
+      }
+      menuItem.onmouseout = () => {
+        menuItem.style.backgroundColor = 'transparent'
+      }
+      menuItem.onclick = () => {
+        item.action()
+        document.body.removeChild(menu)
+      }
+    }
+
+    menu.appendChild(menuItem)
+  })
+
+  // 添加到页面
+  document.body.appendChild(menu)
+
+  // 点击其他地方关闭菜单
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target)) {
+      document.body.removeChild(menu)
+      document.removeEventListener('click', closeMenu)
+    }
+  }
+
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu)
+  }, 0)
+}
+
+// 监听页面关闭前的未保存提醒
+const beforeUnloadHandler = (e) => {
+  if (hasUnsavedChanges.value) {
+    const message = '您有未保存的更改，确定要离开吗？'
+    e.preventDefault()
+    e.returnValue = message
+    return message
+  }
 }
 
 onMounted(() => {
@@ -1641,77 +2746,25 @@ onMounted(() => {
   loadDataSources()
   // 初始化编辑器
   initEditor()
-  
+
   // 延迟增强表格编辑功能
   setTimeout(() => {
     enhanceTableEditing()
   }, 1000)
+
+  // 添加页面离开前的提醒
+  window.addEventListener('beforeunload', beforeUnloadHandler)
 })
 
-// 全局表格操作函数（用于table-toolbar按钮）
-window.addTableRow = function(button) {
-  const table = button.closest('.table-toolbar').nextElementSibling
-  if (table && table.tagName === 'TABLE') {
-    const tbody = table.querySelector('tbody') || table
-    const lastRow = tbody.lastElementChild
-    if (lastRow) {
-      const newRow = lastRow.cloneNode(true)
-      // 清空新行的内容
-      const cells = newRow.querySelectorAll('td, th')
-      cells.forEach(cell => {
-        cell.innerHTML = '&nbsp;'
-      })
-      tbody.appendChild(newRow)
-    }
+// 组件销毁时清理
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', beforeUnloadHandler)
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
   }
-}
+})
 
-window.addTableColumn = function(button) {
-  const table = button.closest('.table-toolbar').nextElementSibling
-  if (table && table.tagName === 'TABLE') {
-    const rows = table.querySelectorAll('tr')
-    rows.forEach(row => {
-      const lastCell = row.lastElementChild
-      if (lastCell) {
-        const newCell = document.createElement(lastCell.tagName.toLowerCase())
-        newCell.innerHTML = '&nbsp;'
-        // 复制样式
-        newCell.style.cssText = lastCell.style.cssText
-        row.appendChild(newCell)
-      }
-    })
-  }
-}
-
-window.deleteTableRow = function(button) {
-  const table = button.closest('.table-toolbar').nextElementSibling
-  if (table && table.tagName === 'TABLE') {
-    const tbody = table.querySelector('tbody') || table
-    const rows = tbody.querySelectorAll('tr')
-    if (rows.length > 1) { // 保留至少一行
-      tbody.removeChild(rows[rows.length - 1])
-    }
-  }
-}
-
-window.deleteTableColumn = function(button) {
-  const table = button.closest('.table-toolbar').nextElementSibling
-  if (table && table.tagName === 'TABLE') {
-    const rows = table.querySelectorAll('tr')
-    let maxCells = 0
-    rows.forEach(row => {
-      maxCells = Math.max(maxCells, row.children.length)
-    })
-    
-    if (maxCells > 1) { // 保留至少一列
-      rows.forEach(row => {
-        if (row.children.length > 0) {
-          row.removeChild(row.lastElementChild)
-        }
-      })
-    }
-  }
-}
+// 移除全局表格操作函数，不再需要添加/删除行列的功能
 </script>
 
 <style lang="scss">
@@ -1729,19 +2782,19 @@ window.deleteTableColumn = function(button) {
   table, .word-table {
     border-collapse: collapse;
     width: 100%;
-    margin: 15px 0;
+    margin: 10px 0;  /* 减小表格上下间距 */
     border: 1px solid #000;
     table-layout: auto;
     word-wrap: break-word;
     font-family: "SimSun", "宋体", "Noto Serif SC", "Source Han Serif SC", serif !important;
-    
+
     td, th {
       border: 1px solid #000;
-      padding: 8px 12px;
+      padding: 4px 6px;  /* 减小单元格内边距，从 8px 12px 改为 4px 6px */
       vertical-align: middle;
       text-align: left;
-      line-height: 1.5;
-      min-height: 30px;
+      line-height: 1.4;  /* 稍微减小行高 */
+      min-height: 25px;  /* 减小最小高度 */
     }
     
     th {
@@ -1861,10 +2914,10 @@ window.deleteTableColumn = function(button) {
   p {
     font-family: "SimSun", "宋体", "Noto Serif SC", "Source Han Serif SC", serif !important;
     font-size: 12pt;
-    margin: 6pt 0;
-    line-height: 1.75;
+    margin: 4pt 0;  /* 减小段落间距 */
+    line-height: 1.5;  /* 减小行高 */
     text-align: justify;
-    text-indent: 2em;
+    text-indent: 1.5em;  /* 减小首行缩进 */
     color: #000;
     text-justify: inter-ideograph;
   }
@@ -1950,49 +3003,109 @@ window.deleteTableColumn = function(button) {
     break-before: page;
   }
   
-  /* 表格工具栏样式 */
-  .table-toolbar {
-    background: #f8f9fa;
-    padding: 6px 8px;
-    border: 1px solid #e9ecef;
-    border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    
-    .table-controls {
-      display: flex;
-      gap: 6px;
-    }
-    
-    .table-btn {
-      background: #fff;
-      border: 1px solid #dee2e6;
-      border-radius: 3px;
-      padding: 4px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      color: #495057;
-      
-      &:hover {
-        background-color: #e9ecef;
-        border-color: #adb5bd;
-      }
-      
-      &:active {
-        background-color: #dee2e6;
-        transform: translateY(1px);
-      }
-    }
-  }
-  
   /* 增强选中效果 */
   ::selection {
     background-color: #b3d4fc;
     color: #000;
   }
-  
-  /* 表格编辑增强 */
-  table:hover .table-toolbar {
-    opacity: 1;
+
+  /* 选中的单元格样式 */
+  .cell-selected {
+    background-color: #e3f2fd !important;
+    outline: 2px solid #2196f3 !important;
+    position: relative;
+  }
+
+  /* 拖拽选择中的单元格样式 */
+  .cell-selecting {
+    background: linear-gradient(135deg, #e6f7ff 0%, #d4edda 100%) !important;
+    border: 2px dashed #52c41a !important;
+    animation: merge-highlight 2s ease-in-out infinite;
+  }
+
+  /* 表格样式增强 */
+  #word-editor :deep(table) {
+    table-layout: fixed !important;
+    width: 100% !important;
+    border-collapse: collapse;
+  }
+
+  #word-editor :deep(td),
+  #word-editor :deep(th) {
+    position: relative !important;
+    min-width: 100px !important;
+    overflow: hidden;
+  }
+
+  /* 列调整手柄 */
+  #word-editor :deep(.resize-handle) {
+    position: absolute;
+    right: -3px;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 100;
+    transition: background 0.2s;
+  }
+
+  #word-editor :deep(.resize-handle:hover) {
+    background: rgba(33, 150, 243, 0.5) !important;
+  }
+
+  /* 确保表格单元格有边框且可见 */
+  #word-editor :deep(table) {
+    border-spacing: 0;
+  }
+
+  #word-editor :deep(td),
+  #word-editor :deep(th) {
+    border: 1px solid #ddd;
+    box-sizing: border-box;
+  }
+
+  /* 行调整手柄 */
+  #word-editor :deep(.row-resize-handle) {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 5px;
+    cursor: row-resize;
+    background: transparent;
+    z-index: 10;
+    transition: background 0.2s;
+  }
+
+  #word-editor :deep(.row-resize-handle:hover) {
+    background: rgba(76, 175, 80, 0.5) !important;
+  }
+
+  /* 确保单元格有最小高度 */
+  #word-editor :deep(td),
+  #word-editor :deep(th) {
+    min-height: 30px !important;
+    vertical-align: middle;
+  }
+
+  @keyframes merge-highlight {
+    0% {
+      background: rgba(82, 196, 26, 0.05);
+    }
+    50% {
+      background: rgba(82, 196, 26, 0.15);
+    }
+    100% {
+      background: rgba(82, 196, 26, 0.05);
+    }
+  }
+
+  /* 合并模式下的表格样式 */
+  .merge-mode-active td,
+  .merge-mode-active th {
+    cursor: crosshair !important;
+    user-select: none;
   }
   
   /* 可编辑区域光标样式 */
@@ -2067,7 +3180,7 @@ window.deleteTableColumn = function(button) {
       
       .el-select {
         margin: 0 -1px;
-        
+
         .el-input {
           .el-input__wrapper {
             border-radius: 0;
@@ -2076,6 +3189,28 @@ window.deleteTableColumn = function(button) {
           }
         }
       }
+    }
+
+    .auto-save-status {
+      margin-left: auto;
+      color: #909399;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .is-loading {
+        animation: rotate 1s linear infinite;
+      }
+    }
+  }
+
+  @keyframes rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
     }
   }
   

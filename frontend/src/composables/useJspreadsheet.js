@@ -171,18 +171,18 @@ export function useJspreadsheet() {
     let config = {
       data: data,
       columns: columnsWithReadonly,
-      allowInsertRow: true,
-      allowInsertColumn: true,
-      allowDeleteRow: true,
-      allowDeleteColumn: true,
-      allowRenameColumn: true,
+      allowInsertRow: false,
+      allowInsertColumn: false,
+      allowDeleteRow: false,
+      allowDeleteColumn: false,
+      allowRenameColumn: false,
       allowComments: false,
       csvHeaders: true,
       search: false,
       pagination: false,
       paginationOptions: false,
-      contextMenu: true,
-      toolbar: true,
+      contextMenu: false,
+      toolbar: false,
       freezeColumns: 1
     }
 
