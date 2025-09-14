@@ -68,37 +68,21 @@
                 <h4>表格配置</h4>
               </div>
               
-              <!-- 表格操作工具栏 - 简化版 -->
-              <div class="table-operations-simple">
-                <div class="operation-buttons">
-                  <el-button 
-                    size="small" 
-                    type="primary"
-                    @click="toggleMergeMode(section.id)"
-                    :class="{ 'merge-mode-active': mergeMode[section.id] }">
-                    <el-icon><svg viewBox="0 0 1024 1024" width="16" height="16"><path d="M896 128H128c-35.3 0-64 28.7-64 64v640c0 35.3 28.7 64 64 64h768c35.3 0 64-28.7 64-64V192c0-35.3-28.7-64-64-64zM448 832H128V576h320v256zm0-320H128V256h320v256zm448 320H512V576h384v256zm0-320H512V256h384v256z"/></svg></el-icon>
-                    {{ mergeMode[section.id] ? '取消' : '合并单元格' }}
-                  </el-button>
-                  <el-button 
-                    size="small" 
-                    type="warning" 
-                    @click="splitSelectedCell(section.id)"
-                    :disabled="!hasSelectedMergedCell(section.id)">
-                    <el-icon><svg viewBox="0 0 1024 1024" width="16" height="16"><path d="M896 128H128c-35.3 0-64 28.7-64 64v640c0 35.3 28.7 64 64 64h768c35.3 0 64-28.7 64-64V192c0-35.3-28.7-64-64-64zM192 768V576h256v192H192zm0-256V256h256v256H192zm320 256V576h256v192H512zm0-256V256h256v256H512z"/></svg></el-icon>
-                    拆分单元格
-                  </el-button>
-                </div>
-                <div class="operation-tips" v-if="mergeMode[section.id]">
-                  <el-icon class="el-icon--primary" style="animation: pulse-border 1.5s ease-in-out infinite;">
-                    <svg viewBox="0 0 1024 1024" width="16" height="16">
-                      <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z"/>
-                      <path d="M464 336a48 48 0 1 0 96 0 48 48 0 1 0-96 0zm72 112h-48c-4.4 0-8 3.6-8 8v272c0 4.4 3.6 8 8 8h48c4.4 0 8-3.6 8-8V456c0-4.4-3.6-8-8-8z"/>
-                    </svg>
-                  </el-icon>
-                  <span style="margin-left: 8px; color: #52c41a; font-weight: 500;">
-                    🖱️ 按住鼠标拖拽选择要合并的单元格区域
-                  </span>
-                </div>
+              <!-- 表格操作提示 -->
+              <div class="table-operations-tips">
+                <el-alert
+                  type="info"
+                  :closable="false"
+                  show-icon>
+                  <template #default>
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                      <span>📝 <strong>表格编辑提示：</strong></span>
+                      <span>• 选择多个单元格后右键合并</span>
+                      <span>• Tab键自动跳转下一格</span>
+                      <span>• 到达最后一格自动新增行/列</span>
+                    </div>
+                  </template>
+                </el-alert>
               </div>
 
 
@@ -109,19 +93,22 @@
                     <!-- 所有行都作为数据行，包括原来的表头 -->
                     <tr v-for="(row, rowIndex) in getAllTableRows(section.id)" :key="rowIndex" 
                         :class="{ 'header-row': rowIndex < getHeaderRowCount(section.id) }">
-                      <td v-for="(cellData, colIndex) in row" 
+                      <td v-for="(cellData, colIndex) in row"
                           :key="colIndex"
                           v-show="!isCellHidden(section.id, rowIndex, colIndex)"
                           :id="`cell_${section.id}_${rowIndex}_${colIndex}`"
                           class="table-cell"
                           :class="getCellClass(section.id, rowIndex, colIndex)"
+                          :style="getCellStyle(section.id, rowIndex, colIndex)"
                           :colspan="getCellColspan(section.id, rowIndex, colIndex)"
                           :rowspan="getCellRowspan(section.id, rowIndex, colIndex)"
                           @mousedown="handleCellMouseDown(section.id, rowIndex, colIndex, $event)"
                           @mouseenter="handleCellMouseEnter(section.id, rowIndex, colIndex, $event)"
                           @mouseup="handleCellMouseUp(section.id, rowIndex, colIndex, $event)"
                           @click="handleCellClickEvent(section.id, rowIndex, colIndex, $event)"
-                          @dblclick="handleCellDoubleClick(section.id, rowIndex, colIndex, $event)">
+                          @dblclick="handleCellDoubleClick(section.id, rowIndex, colIndex, $event)"
+                          @contextmenu="handleCellContextMenu(section.id, rowIndex, colIndex, $event)"
+                          @keydown="handleCellKeyDown(section.id, rowIndex, colIndex, $event)">
                         <input 
                           v-if="editingCell === `${section.id}_${rowIndex}_${colIndex}`"
                           v-model="editingValue"
@@ -256,6 +243,15 @@
         <div v-if="cellConfig.displayType === 'text'">
           <el-form-item label="文字内容">
             <el-input v-model="cellConfig.textContent" placeholder="请输入文字内容" />
+          </el-form-item>
+
+          <!-- 文字对齐方式 -->
+          <el-form-item label="对齐方式">
+            <el-radio-group v-model="cellConfig.textAlign">
+              <el-radio label="left">左对齐</el-radio>
+              <el-radio label="center">居中</el-radio>
+              <el-radio label="right">右对齐</el-radio>
+            </el-radio-group>
           </el-form-item>
         </div>
 
@@ -490,6 +486,7 @@ const isHiddenCell = ref(false) // 是否为被合并的单元格（非主单元
 const cellConfig = ref({
   displayType: 'text', // 'text' | 'dataset'
   textContent: '', // 仅文字模式的内容
+  textAlign: 'center', // 'left' | 'center' | 'right' - 文字对齐方式
   datasetId: '', // 数据集ID
   dataStructure: 'single', // 'single' | 'list' | 'attachment'
   sheetConfig: 'current', // 'current' | 'separate'
@@ -812,8 +809,9 @@ const openCellConfigDialog = (sectionId, rowIndex, colIndex, cellData) => {
     cellConfig.value = {
       displayType: cellData.displayType || 'text',
       textContent: cellData.textContent || cellData.fixedValue || '',
+      textAlign: cellData.textAlign || 'center', // 添加对齐方式
       datasetId: cellData.datasetId || '1', // 默认数据源
-      dataStructure: isHiddenCell.value && cellData.dataStructure === 'list' 
+      dataStructure: isHiddenCell.value && cellData.dataStructure === 'list'
         ? 'single' // 被合并的单元格强制使用单条模式
         : cellData.dataStructure || 'single',
       sheetConfig: cellData.sheetConfig || 'current',
@@ -830,6 +828,7 @@ const openCellConfigDialog = (sectionId, rowIndex, colIndex, cellData) => {
     cellConfig.value = {
       displayType: 'text',
       textContent: '',
+      textAlign: 'center', // 添加默认对齐方式
       datasetId: '',
       dataStructure: 'single', // 默认为单条
       sheetConfig: 'current',
@@ -1006,6 +1005,21 @@ const getCellDisplayContent = (sectionId, rowIndex, colIndex, originalContent) =
   
   // 如果没有配置或配置无效，返回原始内容
   return originalContent || ''
+}
+
+// 获取单元格内联样式
+const getCellStyle = (sectionId, rowIndex, colIndex) => {
+  const cellKey = `${sectionId}_${rowIndex}_${colIndex}`
+  const config = cellConfigurations.value[cellKey]
+
+  let styles = {}
+
+  // 应用文字对齐方式
+  if (config && config.textAlign) {
+    styles['text-align'] = config.textAlign
+  }
+
+  return styles
 }
 
 // 获取单元格样式类
@@ -1408,14 +1422,136 @@ const handleCellClickEvent = (sectionId, rowIndex, colIndex, event) => {
 // 处理双击事件
 const handleCellDoubleClick = (sectionId, rowIndex, colIndex, event) => {
   event.preventDefault()
-  
-  if (!mergeMode.value[sectionId]) {
-    // 双击时打开配置弹窗
-    const cellKey = `${sectionId}_${rowIndex}_${colIndex}`
-    const existingConfig = cellConfigurations.value[cellKey]
-    console.log('打开单元格配置:', { cellKey, existingConfig })
-    openCellConfigDialog(sectionId, rowIndex, colIndex, existingConfig)
+  event.stopPropagation()
+
+  // 双击时始终打开配置弹窗（无论是否在合并模式）
+  const cellKey = `${sectionId}_${rowIndex}_${colIndex}`
+  const existingConfig = cellConfigurations.value[cellKey]
+  console.log('双击单元格，打开配置:', { sectionId, rowIndex, colIndex, cellKey, existingConfig })
+  openCellConfigDialog(sectionId, rowIndex, colIndex, existingConfig)
+}
+
+// 处理右键菜单事件
+const handleCellContextMenu = (sectionId, rowIndex, colIndex, event) => {
+  event.preventDefault()
+
+  // 获取选中的单元格
+  const selected = selectedCells.value[sectionId] || []
+
+  // 如果有多个单元格选中，显示合并选项
+  if (selected.length > 1) {
+    // 显示合并菜单
+    showMergeMenu(sectionId, event.clientX, event.clientY)
   }
+}
+
+// 显示合并菜单
+const showMergeMenu = (sectionId, x, y) => {
+  // 创建一个简单的右键菜单
+  const menu = document.createElement('div')
+  menu.className = 'context-menu'
+  menu.style.position = 'fixed'
+  menu.style.left = x + 'px'
+  menu.style.top = y + 'px'
+  menu.style.zIndex = '9999'
+  menu.innerHTML = `
+    <div class="menu-item" onclick="window.mergeCells('${sectionId}')">合并单元格</div>
+    <div class="menu-item" onclick="window.splitCells('${sectionId}')">拆分单元格</div>
+  `
+  document.body.appendChild(menu)
+
+  // 点击其他地方关闭菜单
+  const closeMenu = () => {
+    menu.remove()
+    document.removeEventListener('click', closeMenu)
+  }
+  setTimeout(() => document.addEventListener('click', closeMenu), 100)
+}
+
+// 处理键盘事件（Tab键自动增加行/列）
+const handleCellKeyDown = (sectionId, rowIndex, colIndex, event) => {
+  if (event.key === 'Tab') {
+    event.preventDefault()
+
+    const section = template.value.structure.sections.find(s => s.id === sectionId)
+    if (!section || !section.tableStructure) return
+
+    const totalRows = getAllTableRows(sectionId).length
+    const totalCols = section.tableStructure.columnCount
+
+    // 计算下一个单元格位置
+    let nextRow = rowIndex
+    let nextCol = colIndex + 1
+
+    // 如果到达行末尾
+    if (nextCol >= totalCols) {
+      nextCol = 0
+      nextRow++
+
+      // 如果是最后一行的最后一列，自动增加新行
+      if (nextRow >= totalRows) {
+        addTableRow(sectionId)
+      }
+    }
+
+    // 如果是最后一列，考虑自动增加列
+    if (colIndex === totalCols - 1 && event.shiftKey) {
+      addTableColumn(sectionId)
+      return
+    }
+
+    // 聚焦到下一个单元格
+    nextTick(() => {
+      const nextCell = document.getElementById(`cell_${sectionId}_${nextRow}_${nextCol}`)
+      if (nextCell) {
+        const input = nextCell.querySelector('input')
+        if (input) {
+          input.focus()
+        } else {
+          // 触发编辑模式
+          startCellEdit(sectionId, nextRow, nextCol)
+        }
+      }
+    })
+  }
+}
+
+// 添加新行
+const addTableRow = (sectionId) => {
+  const section = template.value.structure.sections.find(s => s.id === sectionId)
+  if (!section || !section.tableStructure) return
+
+  const rows = getContentRows(sectionId)
+  const newRow = new Array(section.tableStructure.columnCount).fill('')
+
+  rows.push({
+    name: '',
+    type: 'data',
+    cells: newRow,
+    locked: false
+  })
+
+  // 更新表格结构
+  section.tableStructure.rowCount++
+  ElMessage.success('已自动添加新行')
+}
+
+// 添加新列
+const addTableColumn = (sectionId) => {
+  const section = template.value.structure.sections.find(s => s.id === sectionId)
+  if (!section || !section.tableStructure) return
+
+  // 给每一行添加新列
+  const rows = getContentRows(sectionId)
+  rows.forEach(row => {
+    row.cells.push('')
+  })
+
+  // 更新表格结构
+  section.tableStructure.columnCount++
+  section.tableStructure.headers.push(`列${section.tableStructure.columnCount}`)
+
+  ElMessage.success('已自动添加新列')
 }
 
 // 开始编辑单元格
@@ -1870,8 +2006,40 @@ const getPreviewData = () => {
 }
 
 // 设置全局函数，供HTML表格的onclick使用
+// 添加全局函数供右键菜单调用
 window.handleCellClick = handleCellClickEvent
+window.mergeCells = (sectionId) => {
+  performMerge(sectionId)
+}
+window.splitCells = (sectionId) => {
+  splitSelectedCell(sectionId)
+}
 </script>
+
+<style lang="scss">
+/* 右键菜单样式 - 全局样式 */
+.context-menu {
+  background: white;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  padding: 4px 0;
+  min-width: 120px;
+
+  .menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #606266;
+    transition: all 0.2s;
+
+    &:hover {
+      background: #f5f7fa;
+      color: #409eff;
+    }
+  }
+}
+</style>
 
 <style scoped lang="scss">
 .template-config-page {
@@ -2877,7 +3045,7 @@ window.handleCellClick = handleCellClickEvent
       }
     }
   }
-  
+
   /* 动画定义 */
   @keyframes pulse-border {
     0% {

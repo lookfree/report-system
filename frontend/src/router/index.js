@@ -13,7 +13,7 @@ const routes = [
   {
     path: '/templates/:id/editor',
     name: 'TemplateEditor',
-    component: () => import('@/views/TemplateEditorNew.vue')
+    component: () => import('@/views/TemplateEditor.vue')
   },
   {
     path: '/datasources',
