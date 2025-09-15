@@ -274,7 +274,10 @@ class VariableProcessor {
     // 先处理列表数据的起始占位符
     let processedHtml = await this.processListDatasetPlaceholders(html, context);
 
-    // 然后处理单条数据的占位符
+    // 处理内联的单条数据占位符（支持一个单元格内多个字段）
+    processedHtml = await this.processInlineDatasetPlaceholders(processedHtml, context);
+
+    // 然后处理单条数据的占位符（div格式）
     const placeholderRegex = /<div[^>]*class="dataset-placeholder"[^>]*>[\s\S]*?<\/div>/g;
     let match;
 
@@ -358,6 +361,93 @@ class VariableProcessor {
         data: mockData
       };
     }
+  }
+
+  /**
+   * 处理内联的数据集占位符（支持一个单元格内多个字段）
+   */
+  async processInlineDatasetPlaceholders(html, context) {
+    console.log('🔄 Processing inline dataset placeholders...');
+
+    // 匹配内联的span格式占位符
+    const inlineRegex = /<span[^>]*class="dataset-placeholder-inline"[^>]*>[\s\S]*?<\/span>/g;
+    let processedHtml = html;
+    let match;
+
+    const datasetStore = require('../models/DatasetStore');
+    const replacements = [];
+
+    // 收集所有需要替换的占位符
+    while ((match = inlineRegex.exec(html)) !== null) {
+      const placeholderSpan = match[0];
+
+      // 提取数据集属性
+      const datasetId = this.extractAttribute(placeholderSpan, 'data-dataset-id');
+      const fieldName = this.extractAttribute(placeholderSpan, 'data-field-name');
+      const datasetName = this.extractAttribute(placeholderSpan, 'data-dataset-name');
+
+      console.log(`📊 Processing inline placeholder: ${datasetName}.${fieldName}`);
+
+      replacements.push({
+        placeholder: placeholderSpan,
+        datasetId,
+        fieldName,
+        datasetName
+      });
+    }
+
+    // 按数据集ID分组，减少查询次数
+    const datasetGroups = {};
+    for (const replacement of replacements) {
+      if (!datasetGroups[replacement.datasetId]) {
+        datasetGroups[replacement.datasetId] = [];
+      }
+      datasetGroups[replacement.datasetId].push(replacement);
+    }
+
+    // 处理每个数据集的所有字段
+    for (const [datasetId, items] of Object.entries(datasetGroups)) {
+      try {
+        // 获取数据集
+        const dataset = datasetStore.getDataset(datasetId);
+
+        if (!dataset) {
+          // 数据集未找到，替换为错误提示
+          for (const item of items) {
+            processedHtml = processedHtml.replace(
+              item.placeholder,
+              `<span style="color: red;">[${item.fieldName}]</span>`
+            );
+          }
+          continue;
+        }
+
+        // 执行数据集查询（只查询一次）
+        const result = await this.executeDatasetQuery(dataset);
+        const data = result && result.data && result.data[0] ? result.data[0] : {};
+
+        // 替换所有该数据集的字段
+        for (const item of items) {
+          const value = data[item.fieldName] !== undefined && data[item.fieldName] !== null
+            ? String(data[item.fieldName])
+            : '-';
+
+          processedHtml = processedHtml.replace(item.placeholder, value);
+          console.log(`✅ Replaced ${item.fieldName} with: ${value}`);
+        }
+      } catch (error) {
+        console.error(`Error processing dataset ${datasetId}:`, error);
+        // 出错时替换为错误提示
+        for (const item of items) {
+          processedHtml = processedHtml.replace(
+            item.placeholder,
+            `<span style="color: red;">[错误]</span>`
+          );
+        }
+      }
+    }
+
+    return processedHtml;
   }
 
   /**

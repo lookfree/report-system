@@ -115,7 +115,7 @@
       <div class="toolbar-group">
         <el-button @click="insertData">
           <el-icon><Connection /></el-icon>
-          插入字段
+          插入数据
         </el-button>
       </div>
       
@@ -192,31 +192,27 @@
               </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item label="数据类型" v-if="selectedDataset">
-            <el-tag :type="selectedDataset.type === 'single' ? 'warning' : 'primary'">
-              {{ selectedDataset.type === 'single' ? '单条数据' : '列表数据' }}
-            </el-tag>
-          </el-form-item>
-          <el-form-item label="sheet页配置" v-if="selectedDataset && selectedDataset.type === 'list'">
-            <el-radio-group v-model="fieldForm.sheetConfig">
-              <el-radio value="CURRENT">当前sheet页</el-radio>
-              <el-radio value="SEPARATE" disabled>单独sheet页</el-radio>
+          <el-form-item label="数据展示方式" v-if="selectedDataset">
+            <el-radio-group v-model="fieldForm.displayMode">
+              <el-radio value="SINGLE">单条（仅显示第一条数据）</el-radio>
+              <el-radio value="LIST" v-if="selectedDataset.type === 'list'">列表（当前sheet页）</el-radio>
             </el-radio-group>
           </el-form-item>
 
           <!-- 字段选择 -->
           <el-form-item label="展示字段" v-if="selectedDataset && datasetPreview">
             <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
-              <!-- 单条数据时使用单选 -->
-              <el-radio-group v-if="selectedDataset.type === 'single'" v-model="fieldForm.selectedField">
+              <!-- 单条模式时使用单选 -->
+              <el-radio-group v-if="fieldForm.displayMode === 'SINGLE'" v-model="fieldForm.selectedField">
                 <div v-for="field in selectedDataset.fields" :key="field" style="margin-bottom: 8px;">
                   <el-radio :value="field" style="width: 100%;">
                     <span style="font-weight: 500;">{{ field }}</span>
+                    <span style="font-size: 12px; color: #999; margin-left: 10px;">（仅显示第一条数据的此字段）</span>
                   </el-radio>
                 </div>
               </el-radio-group>
-              <!-- 列表数据时使用多选 -->
-              <el-checkbox-group v-else v-model="fieldForm.displayFields">
+              <!-- 列表模式时使用多选 -->
+              <el-checkbox-group v-else-if="fieldForm.displayMode === 'LIST'" v-model="fieldForm.displayFields">
                 <div v-for="field in selectedDataset.fields" :key="field" style="margin-bottom: 8px;">
                   <el-checkbox :value="field" style="width: 100%;">
                     <span style="font-weight: 500;">{{ field }}</span>
@@ -227,22 +223,22 @@
           </el-form-item>
 
           <!-- 字段值预览 -->
-          <el-form-item label="预览数据" v-if="datasetPreview && ((selectedDataset.type === 'single' && fieldForm.selectedField) || (selectedDataset.type === 'list' && fieldForm.displayFields.length > 0))">
+          <el-form-item label="预览数据" v-if="datasetPreview && ((fieldForm.displayMode === 'SINGLE' && fieldForm.selectedField) || (fieldForm.displayMode === 'LIST' && fieldForm.displayFields && fieldForm.displayFields.length > 0))">
             <div style="max-height: 200px; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
               <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                   <tr style="background: #e9ecef;">
-                    <th v-for="fieldName in (selectedDataset.type === 'single' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
+                    <th v-for="fieldName in (fieldForm.displayMode === 'SINGLE' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
                         style="padding: 8px; border: 1px solid #ddd; font-weight: 500; text-align: left;">
                       {{ fieldName }}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(row, index) in (datasetPreview.data ? (selectedDataset.type === 'single' ? [datasetPreview.data] : datasetPreview.data.slice(0, 4)) : [])"
+                  <tr v-for="(row, index) in (datasetPreview.data ? (fieldForm.displayMode === 'SINGLE' ? [Array.isArray(datasetPreview.data) ? datasetPreview.data[0] : datasetPreview.data] : datasetPreview.data.slice(0, 4)) : [])"
                       :key="index"
                       style="background: white;">
-                    <td v-for="fieldName in (selectedDataset.type === 'single' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
+                    <td v-for="fieldName in (fieldForm.displayMode === 'SINGLE' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
                         style="padding: 8px; border: 1px solid #ddd;">
                       {{ row[fieldName] }}
                     </td>
@@ -560,6 +556,7 @@ const fieldForm = reactive({
   datasetId: null, // 配置的数据集ID
   datasetName: '', // 兼容旧的mock数据集
   dataStructure: 'SINGLE', // SINGLE 或 LIST
+  displayMode: 'SINGLE', // SINGLE（单条） 或 LIST（列表）
   sheetConfig: 'CURRENT', // CURRENT 或 SEPARATE
   displayFields: [],
   selectedField: '' // 单条数据时选择的单个字段
@@ -1139,14 +1136,19 @@ const onConfiguredDatasetChange = async () => {
     if (data.success && data.result) {
       datasetPreview.value = data.result
 
-      // 根据数据类型设置默认选中的字段
+      // 根据数据类型设置默认展示模式和选中的字段
       if (selectedDataset.value) {
+        // 设置默认展示模式
         if (selectedDataset.value.type === 'single') {
-          // 单条数据时默认选中第一个字段
+          // 单条数据集默认为单条模式
+          fieldForm.displayMode = 'SINGLE'
           fieldForm.selectedField = selectedDataset.value.fields[0] || ''
         } else {
-          // 列表数据时默认选中前几个字段
-          fieldForm.displayFields = selectedDataset.value.fields.slice(0, Math.min(3, selectedDataset.value.fields.length))
+          // 列表数据集默认为单条模式（用于统计场景）
+          fieldForm.displayMode = 'SINGLE'
+          fieldForm.selectedField = selectedDataset.value.fields[0] || ''
+          // 如果需要列表模式，可以手动切换
+          // fieldForm.displayFields = selectedDataset.value.fields.slice(0, Math.min(3, selectedDataset.value.fields.length))
         }
       }
     }
@@ -1218,7 +1220,7 @@ const generatePreviewData = () => {
   previewData.value = mockData
 }
 
-// 确认插入字段
+// 确认插入数据
 const confirmInsertField = () => {
   if (fieldForm.insertType === 'FIELD') {
     insertFieldElement()
@@ -1227,7 +1229,7 @@ const confirmInsertField = () => {
   }
 }
 
-// 插入字段元素
+// 插入数据元素
 const insertFieldElement = () => {
   // 构建字段的数据属性
   let dataAttrs = `data-field-name="${fieldForm.name}" data-field-type="${fieldForm.dataType}"`
@@ -1277,7 +1279,7 @@ const insertFieldElement = () => {
     // 删除选中内容（如果有的话）
     range.deleteContents()
     
-    // 插入字段元素
+    // 插入数据元素
     range.insertNode(fieldElement)
     
     // 将光标移动到插入的字段后面
@@ -1306,12 +1308,13 @@ const insertDatasetElement = () => {
       return
     }
 
-    if (selectedDataset.value.type === 'single' && !fieldForm.selectedField) {
+    // 根据展示模式验证字段选择
+    if (fieldForm.displayMode === 'SINGLE' && !fieldForm.selectedField) {
       ElMessage.warning('请选择要展示的字段')
       return
     }
 
-    if (selectedDataset.value.type === 'list' && fieldForm.displayFields.length === 0) {
+    if (fieldForm.displayMode === 'LIST' && fieldForm.displayFields.length === 0) {
       ElMessage.warning('请选择要展示的字段')
       return
     }
@@ -1320,12 +1323,37 @@ const insertDatasetElement = () => {
     if (isTableCell) {
       const cell = currentEditingCell.value
 
-      if (selectedDataset.value.type === 'single') {
-        // 单条数据 - 在单元格中显示数据集名称和字段
-        const cellContent = `<div class="dataset-placeholder" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 5px 10px; border-radius: 4px; font-weight: 500; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); animation: pulse 2s infinite;">📊 ${selectedDataset.value.name}<br/><small style="opacity: 0.9;">${fieldForm.selectedField}</small></div>`
-        cell.innerHTML = cellContent
-      } else {
-        // 列表数据 - 扩展到表格的多个单元格
+      if (fieldForm.displayMode === 'SINGLE') {
+        // 单条模式 - 在光标位置插入数据集字段占位符（支持多个字段混合文本）
+        const placeholder = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px;">📊${fieldForm.selectedField}</span>`
+
+        // 获取当前光标位置并插入占位符
+        const selection = window.getSelection()
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0)
+
+          // 如果是在单元格内，确保range在单元格内
+          if (cell.contains(range.commonAncestorContainer)) {
+            // 在光标位置插入占位符
+            const placeholderElement = document.createElement('span')
+            placeholderElement.innerHTML = placeholder
+            range.insertNode(placeholderElement.firstChild)
+
+            // 移动光标到占位符后面
+            range.setStartAfter(placeholderElement.firstChild)
+            range.collapse(true)
+            selection.removeAllRanges()
+            selection.addRange(range)
+          } else {
+            // 如果光标不在单元格内，追加到单元格末尾
+            cell.innerHTML += placeholder
+          }
+        } else {
+          // 没有选区时，追加到单元格末尾
+          cell.innerHTML += placeholder
+        }
+      } else if (fieldForm.displayMode === 'LIST') {
+        // 列表模式 - 扩展到表格的多个单元格
         const table = cell.closest('table')
         const row = cell.parentElement
         const startCellIndex = cell.cellIndex
@@ -2361,6 +2389,7 @@ const handleCellDoubleClick = (e) => {
     const datasetId = existingDataset.getAttribute('data-dataset-id')
     const fieldName = existingDataset.getAttribute('data-field-name')
     const dataType = existingDataset.getAttribute('data-data-type')
+    const displayMode = existingDataset.getAttribute('data-display-mode')
     const displayFields = existingDataset.getAttribute('data-display-fields')
 
     // 先加载数据集，然后回显选择
@@ -2370,10 +2399,20 @@ const handleCellDoubleClick = (e) => {
 
       // 等待Vue更新后设置字段
       nextTick(() => {
-        if (dataType === 'single' && fieldName) {
+        // 设置展示模式
+        if (displayMode) {
+          fieldForm.displayMode = displayMode
+        } else if (dataType === 'single') {
+          fieldForm.displayMode = 'SINGLE'
+        } else if (dataType === 'list' || dataType === 'list-start') {
+          fieldForm.displayMode = 'LIST'
+        }
+
+        // 设置字段选择
+        if (fieldForm.displayMode === 'SINGLE' && fieldName) {
           fieldForm.selectedField = fieldName
           fieldForm.displayFields = []
-        } else if ((dataType === 'list' || dataType === 'list-start') && displayFields) {
+        } else if (fieldForm.displayMode === 'LIST' && displayFields) {
           fieldForm.displayFields = displayFields.split(',')
           fieldForm.selectedField = ''
         }
@@ -2395,7 +2434,7 @@ const handleCellDoubleClick = (e) => {
   // 加载配置的数据集
   loadConfiguredDatasets()
 
-  // 打开插入字段对话框
+  // 打开插入数据对话框
   showFieldDialog.value = true
 }
 

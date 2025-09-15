@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多字段混合文本测试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            padding: 20px;
+            background: #f0f2f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        h1 {
+            color: #1a1a1a;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 20px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #e1e8f0;
+            border-radius: 6px;
+            background: #fafbfc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* 内联数据集占位符样式 */
+        .dataset-placeholder-inline {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 500;
+            font-size: 0.9em;
+            display: inline-block;
+            margin: 0 2px;
+            animation: pulse 2s infinite;
+        }
+
+        /* 块级数据集占位符样式 */
+        .dataset-placeholder {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: 500;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            50% {
+                box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+            }
+            100% {
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+        }
+
+        .info-box {
+            background: #e6f7ff;
+            border: 1px solid #91d5ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .success-box {
+            background: #f6ffed;
+            border: 1px solid #b7eb8f;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .code-example {
+            background: #f5f5f5;
+            border: 1px solid #d9d9d9;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        .test-cell {
+            min-height: 60px;
+            padding: 15px;
+            background: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .test-cell:hover {
+            background: #f0f5ff;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge-success {
+            background: #52c41a;
+            color: white;
+        }
+
+        .badge-warning {
+            background: #faad14;
+            color: white;
+        }
+
+        .badge-info {
+            background: #1890ff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 多字段混合文本插入测试</h1>
+
+        <div class="info-box">
+            <strong>功能说明：</strong>
+            <p>支持在单个表格单元格中插入多个统计字段，字段之间可以添加说明文字，实现灵活的数据展示。</p>
+        </div>
+
+        <div class="test-section">
+            <h2>测试场景 1：统计汇总信息</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th width="30%">统计项目</th>
+                        <th width="70%">统计结果</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>模板总数统计</td>
+                        <td class="test-cell">
+                            当前系统共有
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="1"
+                                  data-dataset-name="模板统计"
+                                  data-field-name="total_count"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊total_count
+                            </span>
+                            个模板，其中活跃模板
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="1"
+                                  data-dataset-name="模板统计"
+                                  data-field-name="active_count"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊active_count
+                            </span>
+                            个，占比
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="1"
+                                  data-dataset-name="模板统计"
+                                  data-field-name="active_percentage"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊active_percentage
+                            </span>
+                            <span class="badge badge-success">已配置</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>用户活跃度</td>
+                        <td class="test-cell">
+                            本月活跃用户
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="2"
+                                  data-dataset-name="用户统计"
+                                  data-field-name="monthly_active"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊monthly_active
+                            </span>
+                            人，日均活跃
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="2"
+                                  data-dataset-name="用户统计"
+                                  data-field-name="daily_average"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊daily_average
+                            </span>
+                            人，环比增长
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="2"
+                                  data-dataset-name="用户统计"
+                                  data-field-name="growth_rate"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊growth_rate
+                            </span>
+                            %
+                            <span class="badge badge-success">已配置</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="test-section">
+            <h2>测试场景 2：报告摘要信息</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th width="30%">摘要项</th>
+                        <th width="70%">内容</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>审计概况</td>
+                        <td class="test-cell">
+                            本次审计共检查了
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="total_items"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊total_items
+                            </span>
+                            个项目，发现高风险问题
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="high_risk"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊high_risk
+                            </span>
+                            个，中风险问题
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="medium_risk"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊medium_risk
+                            </span>
+                            个，低风险问题
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="low_risk"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊low_risk
+                            </span>
+                            个。
+                            <span class="badge badge-success">已配置</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>整改情况</td>
+                        <td class="test-cell">
+                            截至
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="report_date"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊report_date
+                            </span>
+                            ，已完成整改
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="completed_items"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊completed_items
+                            </span>
+                            项，整改率达到
+                            <span class="dataset-placeholder-inline"
+                                  data-dataset-id="3"
+                                  data-dataset-name="审计统计"
+                                  data-field-name="completion_rate"
+                                  data-data-type="single"
+                                  data-display-mode="SINGLE">
+                                📊completion_rate
+                            </span>
+                            %
+                            <span class="badge badge-success">已配置</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="test-section">
+            <h2>测试场景 3：混合展示（单条字段 + 列表数据）</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>类型</th>
+                        <th>展示内容</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>综合报告</td>
+                        <td class="test-cell">
+                            <p>报告生成时间：
+                                <span class="dataset-placeholder-inline"
+                                      data-dataset-id="4"
+                                      data-dataset-name="报告信息"
+                                      data-field-name="generate_time"
+                                      data-data-type="single"
+                                      data-display-mode="SINGLE">
+                                    📊generate_time
+                                </span>
+                                ，生成人：
+                                <span class="dataset-placeholder-inline"
+                                      data-dataset-id="4"
+                                      data-dataset-name="报告信息"
+                                      data-field-name="author"
+                                      data-data-type="single"
+                                      data-display-mode="SINGLE">
+                                    📊author
+                                </span>
+                            </p>
+                            <p>详细数据列表：</p>
+                            <div class="dataset-placeholder"
+                                 data-dataset-id="1"
+                                 data-dataset-name="模板列表"
+                                 data-display-fields="id,name,createdAt"
+                                 data-data-type="list">
+                                📊 模板列表<br/>
+                                <small style="opacity: 0.9;">表格数据</small>
+                            </div>
+                            <span class="badge badge-info">混合模式</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="success-box">
+            <h3>✅ 实现效果</h3>
+            <ul>
+                <li>支持在单个单元格中插入多个数据集字段</li>
+                <li>字段之间可以添加任意说明文字</li>
+                <li>内联显示方式，与文本自然融合</li>
+                <li>紫色渐变背景标识，带呼吸动画效果</li>
+                <li>预览时自动替换为实际数据值</li>
+                <li>支持单条数据和列表数据混合展示</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>使用说明</h2>
+            <ol>
+                <li><strong>插入字段：</strong>双击表格单元格，选择"单条"模式，选择要插入的字段</li>
+                <li><strong>添加文字：</strong>在字段占位符之间直接输入说明文字</li>
+                <li><strong>继续插入：</strong>将光标放在需要的位置，再次双击插入新字段</li>
+                <li><strong>预览效果：</strong>点击预览按钮查看实际数据替换效果</li>
+            </ol>
+
+            <div class="code-example">
+                // 后端处理逻辑<br>
+                async processInlineDatasetPlaceholders(html, context) {<br>
+                &nbsp;&nbsp;// 匹配所有内联占位符<br>
+                &nbsp;&nbsp;const inlineRegex = /&lt;span[^&gt;]*class="dataset-placeholder-inline"[^&gt;]*&gt;[\s\S]*?&lt;/span&gt;/g;<br>
+                &nbsp;&nbsp;// 按数据集ID分组，减少数据库查询<br>
+                &nbsp;&nbsp;// 批量替换为实际数据<br>
+                }
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>空单元格测试</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>待配置项</th>
+                        <th>操作说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>空单元格</td>
+                        <td class="test-cell" contenteditable="true" style="min-height: 80px;">
+                            双击此单元格可以插入数据集字段，输入文字后再次双击可在光标处继续插入...
+                            <span class="badge badge-warning">待配置</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
