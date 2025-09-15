@@ -150,10 +150,10 @@
     <!-- 数据插入配置对话框 -->
     <el-dialog v-model="showFieldDialog" title="插入数据" width="800px">
       <el-form :model="fieldForm" label-width="100px">
-        <el-form-item label="插入类型">
+        <el-form-item label="展示内容">
           <el-radio-group v-model="fieldForm.insertType">
-            <el-radio value="FIELD">展示字段</el-radio>
-            <el-radio value="TABLE">数据表格</el-radio>
+            <el-radio value="FIELD">仅文字</el-radio>
+            <el-radio value="DATASET">数据集</el-radio>
           </el-radio-group>
         </el-form-item>
         
@@ -170,20 +170,73 @@
           </el-form-item>
         </template>
         
-        <!-- 数据表格配置 -->
-        <template v-if="fieldForm.insertType === 'TABLE'">
-          <el-form-item label="表格标题">
-            <el-input v-model="fieldForm.tableTitle" placeholder="例如：审计结果汇总表" />
-          </el-form-item>
-          <el-form-item label="数据源">
-            <el-select v-model="fieldForm.dataSourceId" style="width: 100%" @change="onDataSourceChange">
-              <el-option 
-                v-for="ds in dataSources" 
-                :key="ds.id" 
-                :label="ds.name" 
-                :value="ds.id" 
+        <!-- 数据集配置 -->
+        <template v-if="fieldForm.insertType === 'DATASET'">
+          <el-form-item label="数据集">
+            <el-select v-model="fieldForm.datasetName" style="width: 100%" @change="onDatasetChange">
+              <el-option
+                v-for="dataset in mockDatasets"
+                :key="dataset.name"
+                :label="dataset.displayName"
+                :value="dataset.name"
               />
             </el-select>
+          </el-form-item>
+          <el-form-item label="数据结构" v-if="fieldForm.datasetName">
+            <el-radio-group v-model="fieldForm.dataStructure">
+              <el-radio value="SINGLE">单条</el-radio>
+              <el-radio value="LIST">列表</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="sheet页配置" v-if="fieldForm.dataStructure === 'LIST'">
+            <el-radio-group v-model="fieldForm.sheetConfig">
+              <el-radio value="CURRENT">当前sheet页</el-radio>
+              <el-radio value="SEPARATE" disabled>单独sheet页</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <!-- 字段选择 -->
+          <el-form-item label="展示字段" v-if="fieldForm.datasetName">
+            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+              <el-checkbox-group v-model="fieldForm.displayFields">
+                <div v-for="field in currentDatasetFields" :key="field.name" style="margin-bottom: 8px;">
+                  <el-checkbox :value="field.name" style="width: 100%;">
+                    <span style="font-weight: 500;">{{ field.displayName }}</span>
+                    <span style="color: #666; font-size: 12px; margin-left: 8px;">({{ field.name }})</span>
+                  </el-checkbox>
+                </div>
+              </el-checkbox-group>
+            </div>
+          </el-form-item>
+
+          <!-- 字段值预览 -->
+          <el-form-item label="字段值" v-if="fieldForm.datasetName && fieldForm.displayFields.length > 0">
+            <div style="max-height: 200px; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #e9ecef;">
+                    <th v-for="fieldName in fieldForm.displayFields" :key="fieldName"
+                        style="padding: 8px; border: 1px solid #ddd; font-weight: 500; text-align: left;">
+                      {{ getFieldDisplayName(fieldName) }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, index) in currentDatasetData.slice(0, fieldForm.dataStructure === 'SINGLE' ? 1 : 4)"
+                      :key="index"
+                      style="background: white;">
+                    <td v-for="fieldName in fieldForm.displayFields" :key="fieldName"
+                        style="padding: 8px; border: 1px solid #ddd;">
+                      {{ row[fieldName] }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="fieldForm.dataStructure === 'LIST' && currentDatasetData.length > 4"
+                   style="padding: 8px; color: #666; text-align: center; font-size: 12px;">
+                共 {{ currentDatasetData.length }} 条数据，仅显示前 4 条预览
+              </div>
+            </div>
           </el-form-item>
         </template>
         <el-form-item label="默认值" v-if="fieldForm.dataType === 'FIXED'">
@@ -470,7 +523,7 @@ const uploadRef = ref()
 
 // 字段表单
 const fieldForm = reactive({
-  insertType: 'FIELD', // FIELD 或 TABLE
+  insertType: 'FIELD', // FIELD 或 DATASET
   name: '',
   tableTitle: '',
   dataType: 'FIXED',
@@ -480,8 +533,63 @@ const fieldForm = reactive({
   dateFormat: 'YYYY-MM-DD',
   systemVariable: 'CURRENT_USER',
   datasetField: '',
-  selectedColumns: []
+  selectedColumns: [],
+  // 数据集相关
+  datasetName: '',
+  dataStructure: 'SINGLE', // SINGLE 或 LIST
+  sheetConfig: 'CURRENT', // CURRENT 或 SEPARATE
+  displayFields: []
 })
+
+// Mock数据集
+const mockDatasets = ref([
+  {
+    name: 'asset_source_distribution',
+    displayName: '资产来源分布',
+    fields: [
+      { name: 'total', displayName: '总数', type: 'number' },
+      { name: 'passSource', displayName: '来源', type: 'string' },
+      { name: 'count', displayName: '数量', type: 'number' }
+    ],
+    data: [
+      { total: 828, passSource: '网关', count: 615 },
+      { total: 1343, passSource: '旁路', count: 950 },
+      { total: 8, passSource: '1', count: 6 },
+      { total: 10, passSource: '2', count: 8 }
+    ]
+  },
+  {
+    name: 'security_audit_results',
+    displayName: '安全审计结果',
+    fields: [
+      { name: 'auditUnit', displayName: '审计单位', type: 'string' },
+      { name: 'riskLevel', displayName: '风险等级', type: 'string' },
+      { name: 'issueCount', displayName: '问题数量', type: 'number' },
+      { name: 'score', displayName: '评分', type: 'number' }
+    ],
+    data: [
+      { auditUnit: '信息技术部', riskLevel: '中等', issueCount: 15, score: 85 },
+      { auditUnit: '财务部', riskLevel: '低', issueCount: 3, score: 95 },
+      { auditUnit: '人事部', riskLevel: '高', issueCount: 28, score: 68 },
+      { auditUnit: '运营部', riskLevel: '中等', issueCount: 12, score: 88 }
+    ]
+  },
+  {
+    name: 'interface_vulnerability',
+    displayName: '接口-定级备案单元数据分布钻取',
+    fields: [
+      { name: 'method', displayName: '方法', type: 'string' },
+      { name: 'vulnerabilityCount', displayName: '漏洞数量', type: 'number' },
+      { name: 'severityLevel', displayName: '严重程度', type: 'string' }
+    ],
+    data: [
+      { method: 'post', vulnerabilityCount: 25, severityLevel: '高' },
+      { method: 'get', vulnerabilityCount: 18, severityLevel: '中' },
+      { method: 'put', vulnerabilityCount: 7, severityLevel: '低' },
+      { method: 'delete', vulnerabilityCount: 12, severityLevel: '中' }
+    ]
+  }
+])
 
 // 表格表单
 const tableForm = reactive({
@@ -511,6 +619,24 @@ const canInsertTable = computed(() => {
     return tableForm.columns.some(col => col.title && col.field)
   }
 })
+
+// 计算属性：当前选中数据集的字段
+const currentDatasetFields = computed(() => {
+  const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
+  return dataset ? dataset.fields : []
+})
+
+// 计算属性：当前选中数据集的数据
+const currentDatasetData = computed(() => {
+  const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
+  return dataset ? dataset.data : []
+})
+
+// 获取字段显示名称
+const getFieldDisplayName = (fieldName) => {
+  const field = currentDatasetFields.value.find(f => f.name === fieldName)
+  return field ? field.displayName : fieldName
+}
 
 // 计算属性：格式化字段显示
 const getFieldDisplay = (field) => {
@@ -865,7 +991,7 @@ const restoreSelection = () => {
 const insertData = () => {
   // 保存当前光标位置
   saveCurrentSelection()
-  
+
   showFieldDialog.value = true
   fieldForm.insertType = 'FIELD'
   fieldForm.name = ''
@@ -878,6 +1004,11 @@ const insertData = () => {
   fieldForm.systemVariable = 'CURRENT_USER'
   fieldForm.datasetField = ''
   fieldForm.selectedColumns = []
+  // 数据集相关字段重置
+  fieldForm.datasetName = ''
+  fieldForm.dataStructure = 'SINGLE'
+  fieldForm.sheetConfig = 'CURRENT'
+  fieldForm.displayFields = []
   datasetFields.value = []
   previewData.value = []
 }
@@ -890,11 +1021,11 @@ const onDataSourceChange = async () => {
     fieldForm.selectedColumns = []
     return
   }
-  
+
   try {
     const response = await api.getDataSourceFields(fieldForm.dataSourceId)
     datasetFields.value = response.fields || []
-    
+
     // 生成mock预览数据
     generatePreviewData()
   } catch (error) {
@@ -902,6 +1033,20 @@ const onDataSourceChange = async () => {
     ElMessage.error('获取数据源字段失败')
     datasetFields.value = []
     previewData.value = []
+  }
+}
+
+// 数据集变化处理
+const onDatasetChange = () => {
+  // 清空之前选择的字段
+  fieldForm.displayFields = []
+
+  if (fieldForm.datasetName) {
+    // 默认选中前几个字段
+    const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
+    if (dataset && dataset.fields.length > 0) {
+      fieldForm.displayFields = dataset.fields.slice(0, Math.min(3, dataset.fields.length)).map(f => f.name)
+    }
   }
 }
 
@@ -949,8 +1094,8 @@ const generatePreviewData = () => {
 const confirmInsertField = () => {
   if (fieldForm.insertType === 'FIELD') {
     insertFieldElement()
-  } else if (fieldForm.insertType === 'TABLE') {
-    insertTableElement()
+  } else if (fieldForm.insertType === 'DATASET') {
+    insertDatasetElement()
   }
 }
 
@@ -1019,6 +1164,118 @@ const insertFieldElement = () => {
   
   showFieldDialog.value = false
   ElMessage.success('展示字段已插入到光标位置')
+}
+
+// 插入数据集元素
+const insertDatasetElement = () => {
+  if (!fieldForm.datasetName || fieldForm.displayFields.length === 0) {
+    ElMessage.warning('请选择数据集和展示字段')
+    return
+  }
+
+  const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
+  if (!dataset) {
+    ElMessage.error('数据集不存在')
+    return
+  }
+
+  let datasetHtml = ''
+
+  if (fieldForm.dataStructure === 'SINGLE') {
+    // 单条数据 - 生成字段变量
+    const fieldHtml = fieldForm.displayFields.map(fieldName => {
+      const field = dataset.fields.find(f => f.name === fieldName)
+      const displayName = field ? field.displayName : fieldName
+      return `<span class="dynamic-field" data-dataset-name="${fieldForm.datasetName}" data-field-name="${fieldName}" data-data-structure="SINGLE" contenteditable="false">{{${displayName}}}</span>`
+    }).join(' ')
+
+    datasetHtml = fieldHtml
+  } else {
+    // 列表数据 - 生成表格
+    const headerRow = fieldForm.displayFields.map(fieldName => {
+      const field = dataset.fields.find(f => f.name === fieldName)
+      return field ? field.displayName : fieldName
+    }).join('</th><th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; font-weight: bold;">')
+
+    const dataRows = dataset.data.slice(0, 3).map(row => {
+      const cells = fieldForm.displayFields.map(fieldName => row[fieldName] || '').join('</td><td style="border: 1px solid #ddd; padding: 8px;">')
+      return `<tr><td style="border: 1px solid #ddd; padding: 8px;">${cells}</td></tr>`
+    }).join('')
+
+    datasetHtml = `
+      <div class="dynamic-table"
+           data-dataset-name="${fieldForm.datasetName}"
+           data-display-fields="${fieldForm.displayFields.join(',')}"
+           data-data-structure="LIST"
+           data-sheet-config="${fieldForm.sheetConfig}"
+           contenteditable="false">
+        <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
+          <thead>
+            <tr>
+              <th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; font-weight: bold;">${headerRow}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dataRows}
+          </tbody>
+        </table>
+        <div style="text-align: center; color: #666; font-size: 12px; margin-top: 5px;">
+          数据集: ${dataset.displayName} | 共 ${dataset.data.length} 条数据 | 仅显示预览
+        </div>
+      </div>
+    `
+  }
+
+  // 插入到编辑器当前光标位置
+  const editorElement = document.getElementById('word-editor')
+  if (editorElement) {
+    editorElement.focus()
+
+    // 尝试恢复保存的光标位置
+    let range = restoreSelection()
+
+    if (!range) {
+      const selection = window.getSelection()
+      if (selection.rangeCount > 0) {
+        range = selection.getRangeAt(0)
+      } else {
+        range = document.createRange()
+        range.selectNodeContents(editorElement)
+        range.collapse(false)
+      }
+    }
+
+    if (!editorElement.contains(range.commonAncestorContainer)) {
+      range = document.createRange()
+      range.selectNodeContents(editorElement)
+      range.collapse(false)
+    }
+
+    // 创建临时容器解析HTML
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = datasetHtml
+    const elements = Array.from(tempDiv.childNodes)
+
+    // 插入所有元素
+    range.deleteContents()
+    elements.forEach(element => {
+      range.insertNode(element)
+      range.setStartAfter(element)
+      range.setEndAfter(element)
+    })
+
+    // 更新选择位置到最后插入的元素后面
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    // 更新内容
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+  }
+
+  showFieldDialog.value = false
+  ElMessage.success(`数据集已插入到光标位置 (${fieldForm.dataStructure === 'SINGLE' ? '单条' : '列表'}模式)`)
 }
 
 // 插入表格元素 (只支持数据集)
@@ -2147,6 +2404,158 @@ const addRowResizeHandle = (cell) => {
   cell.appendChild(resizeHandle)
 }
 
+// 设置动态字段删除功能
+const setupDynamicFieldDeletion = () => {
+  const editorElement = document.getElementById('word-editor')
+  if (!editorElement) return
+
+  // 添加键盘事件监听器
+  const handleKeyDown = (e) => {
+    // 检查是否按下了删除键（Backspace 或 Delete）
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const selection = window.getSelection()
+      if (!selection.rangeCount) return
+
+      const range = selection.getRangeAt(0)
+      const container = range.commonAncestorContainer
+
+      // 查找是否在动态字段附近
+      let dynamicField = null
+
+      // 如果选中的是文本节点，检查其父元素
+      if (container.nodeType === Node.TEXT_NODE) {
+        const parent = container.parentElement
+        if (parent && parent.classList.contains('dynamic-field')) {
+          dynamicField = parent
+        }
+      }
+      // 如果选中的是元素节点，检查是否是动态字段
+      else if (container.nodeType === Node.ELEMENT_NODE && container.classList.contains('dynamic-field')) {
+        dynamicField = container
+      }
+      // 检查选区是否包含动态字段
+      else if (container.nodeType === Node.ELEMENT_NODE) {
+        const fieldsInRange = container.querySelectorAll('.dynamic-field')
+        fieldsInRange.forEach(field => {
+          if (range.intersectsNode && range.intersectsNode(field)) {
+            dynamicField = field
+          }
+        })
+      }
+
+      // 如果找到动态字段，删除它
+      if (dynamicField) {
+        e.preventDefault()
+        dynamicField.remove()
+
+        // 更新内容并触发自动保存
+        content.value = editorElement.innerHTML
+        hasUnsavedChanges.value = true
+
+        ElMessage.success('动态字段已删除')
+      }
+    }
+  }
+
+  // 为编辑器添加键盘事件监听
+  editorElement.addEventListener('keydown', handleKeyDown)
+
+  // 为动态字段添加点击选择功能
+  const enhanceDynamicFields = () => {
+    const dynamicFields = editorElement.querySelectorAll('.dynamic-field')
+    dynamicFields.forEach(field => {
+      // 移除旧的事件监听器
+      field.removeEventListener('click', selectDynamicField)
+      field.removeEventListener('dblclick', deleteDynamicField)
+
+      // 添加点击选择功能
+      field.addEventListener('click', selectDynamicField)
+      field.addEventListener('dblclick', deleteDynamicField)
+
+      // 添加删除按钮（悬停时显示）
+      field.style.position = 'relative'
+
+      field.addEventListener('mouseenter', () => {
+        if (!field.querySelector('.delete-btn')) {
+          const deleteBtn = document.createElement('span')
+          deleteBtn.className = 'delete-btn'
+          deleteBtn.innerHTML = '×'
+          deleteBtn.style.cssText = `
+            position: absolute;
+            right: -8px;
+            top: -8px;
+            width: 16px;
+            height: 16px;
+            background: #f56c6c;
+            color: white;
+            border-radius: 50%;
+            font-size: 12px;
+            line-height: 16px;
+            text-align: center;
+            cursor: pointer;
+            z-index: 1000;
+          `
+
+          deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            field.remove()
+            content.value = editorElement.innerHTML
+            hasUnsavedChanges.value = true
+            ElMessage.success('动态字段已删除')
+          })
+
+          field.appendChild(deleteBtn)
+        }
+      })
+
+      field.addEventListener('mouseleave', () => {
+        const deleteBtn = field.querySelector('.delete-btn')
+        if (deleteBtn) {
+          deleteBtn.remove()
+        }
+      })
+    })
+  }
+
+  // 选中动态字段
+  const selectDynamicField = (e) => {
+    e.stopPropagation()
+    const field = e.target
+
+    // 创建选区选中整个动态字段
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents(field)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+
+  // 双击删除动态字段
+  const deleteDynamicField = (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    const field = e.target
+    field.remove()
+    content.value = editorElement.innerHTML
+    hasUnsavedChanges.value = true
+    ElMessage.success('动态字段已删除')
+  }
+
+  // 初始化现有的动态字段
+  enhanceDynamicFields()
+
+  // 监听内容变化，为新添加的动态字段增强功能
+  const observer = new MutationObserver(() => {
+    enhanceDynamicFields()
+  })
+
+  observer.observe(editorElement, {
+    childList: true,
+    subtree: true
+  })
+}
+
 // 处理单元格鼠标按下（开始拖拽选择）
 const handleCellMouseDown = (event) => {
   const cell = event.target.closest('td, th')
@@ -2752,6 +3161,11 @@ onMounted(() => {
     enhanceTableEditing()
   }, 1000)
 
+  // 添加键盘事件监听器来处理动态字段删除
+  setTimeout(() => {
+    setupDynamicFieldDeletion()
+  }, 1500)
+
   // 添加页面离开前的提醒
   window.addEventListener('beforeunload', beforeUnloadHandler)
 })
@@ -3245,9 +3659,48 @@ onUnmounted(() => {
       padding: 2px 6px;
       border-radius: 3px;
       border: 1px dashed #2196f3;
+      color: #1976d2;
+      font-weight: bold;
       display: inline-block;
       min-width: 60px;
+      margin: 0 2px;
       cursor: pointer;
+      user-select: none;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    :deep(.dynamic-field:hover) {
+      background-color: #bbdefb;
+      border-color: #1565c0;
+      transform: scale(1.02);
+    }
+
+    :deep(.dynamic-field.selected) {
+      background-color: #1976d2;
+      color: white;
+      border-color: #0d47a1;
+    }
+
+    :deep(.delete-btn) {
+      position: absolute !important;
+      right: -8px !important;
+      top: -8px !important;
+      width: 16px !important;
+      height: 16px !important;
+      background: #f56c6c !important;
+      color: white !important;
+      border-radius: 50% !important;
+      font-size: 12px !important;
+      line-height: 16px !important;
+      text-align: center !important;
+      cursor: pointer !important;
+      z-index: 1000 !important;
+      transition: background 0.2s ease !important;
+    }
+
+    :deep(.delete-btn:hover) {
+      background: #e53e3e !important;
     }
     
     :deep(.dynamic-table) {
