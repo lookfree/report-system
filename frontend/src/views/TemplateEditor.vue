@@ -1326,7 +1326,7 @@ const insertDatasetElement = () => {
 
       if (fieldForm.displayMode === 'SINGLE') {
         // 单条模式 - 在光标位置插入数据集字段占位符（支持多个字段混合文本）
-        const placeholder = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
+        const placeholderHTML = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
 
         // 获取当前光标位置并插入占位符
         const selection = window.getSelection()
@@ -1337,21 +1337,49 @@ const insertDatasetElement = () => {
           if (cell.contains(range.commonAncestorContainer)) {
             // 在光标位置插入占位符
             const placeholderElement = document.createElement('span')
-            placeholderElement.innerHTML = placeholder
-            range.insertNode(placeholderElement.firstChild)
+            placeholderElement.className = 'dataset-placeholder-inline'
+            placeholderElement.setAttribute('data-dataset-id', selectedDataset.value.id)
+            placeholderElement.setAttribute('data-dataset-name', selectedDataset.value.name)
+            placeholderElement.setAttribute('data-field-name', fieldForm.selectedField)
+            placeholderElement.setAttribute('data-data-type', 'single')
+            placeholderElement.setAttribute('data-display-mode', 'SINGLE')
+            placeholderElement.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;'
+            placeholderElement.title = '双击删除或按Delete键删除'
+            placeholderElement.textContent = `📊${fieldForm.selectedField}`
 
-            // 移动光标到占位符后面
-            range.setStartAfter(placeholderElement.firstChild)
+            range.insertNode(placeholderElement)
+
+            // 在占位符后面插入一个空格，便于继续输入
+            const space = document.createTextNode(' ')
+            placeholderElement.parentNode.insertBefore(space, placeholderElement.nextSibling)
+
+            // 移动光标到空格后面
+            range.setStartAfter(space)
             range.collapse(true)
             selection.removeAllRanges()
             selection.addRange(range)
+
+            // 更新编辑器内容
+            const editorElement = document.getElementById('word-editor')
+            content.value = editorElement.innerHTML
+            hasUnsavedChanges.value = true
           } else {
             // 如果光标不在单元格内，追加到单元格末尾
-            cell.innerHTML += placeholder
+            cell.innerHTML += placeholderHTML + ' '
+
+            // 更新编辑器内容
+            const editorElement = document.getElementById('word-editor')
+            content.value = editorElement.innerHTML
+            hasUnsavedChanges.value = true
           }
         } else {
           // 没有选区时，追加到单元格末尾
-          cell.innerHTML += placeholder
+          cell.innerHTML += placeholderHTML + ' '
+
+          // 更新编辑器内容
+          const editorElement = document.getElementById('word-editor')
+          content.value = editorElement.innerHTML
+          hasUnsavedChanges.value = true
         }
       } else if (fieldForm.displayMode === 'LIST') {
         // 列表模式 - 扩展到表格的多个单元格
