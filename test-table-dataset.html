@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试表格数据集插入</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .test-section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: bold;
+        }
+        .dataset-placeholder {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: 500;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            50% {
+                box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+            }
+            100% {
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+        }
+        .instruction {
+            background: #e6f7ff;
+            border: 1px solid #91d5ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .success {
+            color: #52c41a;
+            font-weight: bold;
+        }
+        .warning {
+            color: #faad14;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 表格数据集插入功能测试</h1>
+
+        <div class="instruction">
+            <strong>测试说明：</strong>
+            <ol>
+                <li>访问模板编辑器页面</li>
+                <li>创建或编辑一个表格</li>
+                <li>双击表格单元格</li>
+                <li>在弹出的对话框中选择数据集</li>
+                <li>确认后，数据集应显示在单元格中</li>
+                <li>再次双击已插入数据集的单元格，对话框应回显当前选择</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>测试用例 1：单条数据插入</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>字段名称</th>
+                        <th>数据展示</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>模板名称</td>
+                        <td>
+                            <div class="dataset-placeholder" data-dataset-id="1" data-dataset-name="模板列表" data-field-name="name" data-data-type="single">
+                                📊 模板列表<br/>
+                                <small style="opacity: 0.9;">name</small>
+                            </div>
+                        </td>
+                        <td class="success">✓ 已插入</td>
+                    </tr>
+                    <tr>
+                        <td>创建时间</td>
+                        <td>
+                            <div class="dataset-placeholder" data-dataset-id="1" data-dataset-name="模板列表" data-field-name="createdAt" data-data-type="single">
+                                📊 模板列表<br/>
+                                <small style="opacity: 0.9;">createdAt</small>
+                            </div>
+                        </td>
+                        <td class="success">✓ 已插入</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="test-section">
+            <h2>测试用例 2：列表数据插入</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>数据类型</th>
+                        <th>数据集</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>表格数据</td>
+                        <td>
+                            <div class="dataset-placeholder" data-dataset-id="1" data-dataset-name="模板列表" data-display-fields="id,name,createdAt" data-data-type="list">
+                                📊 模板列表<br/>
+                                <small style="opacity: 0.9;">表格数据</small>
+                            </div>
+                        </td>
+                        <td class="success">✓ 已插入</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="test-section">
+            <h2>测试用例 3：空单元格</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>待插入</th>
+                        <th>待插入</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td contenteditable="true" style="min-height: 50px;">双击此处插入数据集</td>
+                        <td contenteditable="true" style="min-height: 50px;">双击此处插入数据集</td>
+                        <td class="warning">⏳ 待测试</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="test-section">
+            <h2>预期效果</h2>
+            <ul>
+                <li>✅ 双击单元格后弹出数据集选择对话框</li>
+                <li>✅ 选择数据集后，单元格显示紫色渐变背景的数据集名称</li>
+                <li>✅ 已插入数据集的单元格再次双击时，对话框回显当前选择</li>
+                <li>✅ 单条数据显示字段名，列表数据显示"表格数据"标签</li>
+                <li>✅ 数据集占位符带有呼吸动画效果</li>
+                <li>✅ 预览时能正确显示数据集内容</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

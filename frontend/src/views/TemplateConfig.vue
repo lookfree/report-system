@@ -2110,7 +2110,7 @@ window.splitCells = (sectionId) => {
       padding: 20px;
       
       .no-table-content {
-        text-align: center;
+        text-align: left;
         color: #909399;
         padding: 40px;
         
@@ -2335,7 +2335,7 @@ window.splitCells = (sectionId) => {
           border: 1px solid rgba(255, 255, 255, 0.2) !important;
           border-right: 1px solid #ddd !important;
           border-bottom: 1px solid #ddd !important;
-          text-align: center;
+          text-align: left;
           padding: 8px 12px;
           
           // 确保合并表头的显示
@@ -2353,7 +2353,7 @@ window.splitCells = (sectionId) => {
           color: inherit;
           font-weight: inherit;
           font-size: inherit;
-          text-align: center;
+          text-align: left;
           padding: 0;
           outline: none;
           
@@ -2390,7 +2390,7 @@ window.splitCells = (sectionId) => {
           &[data-col="0"] {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
             font-weight: 600;
-            text-align: center;
+            text-align: left;
             color: #2c3e50;
           }
         }
@@ -2698,7 +2698,7 @@ window.splitCells = (sectionId) => {
         background: #f5f7fa;
         color: #303133;
         font-weight: 600;
-        text-align: center;
+        text-align: left;
         padding: 16px 12px;
         border-bottom: 1px solid #e4e7ed;
         border-right: 1px solid #e4e7ed;
@@ -2726,7 +2726,7 @@ window.splitCells = (sectionId) => {
           color: inherit;
           font-weight: inherit;
           font-size: inherit;
-          text-align: center;
+          text-align: left;
           padding: 0;
           outline: none;
           
@@ -2751,7 +2751,7 @@ window.splitCells = (sectionId) => {
         padding: 12px 16px;
         border-bottom: 1px solid #e4e7ed;
         border-right: 1px solid #e4e7ed;
-        text-align: center;
+        text-align: left;
         background: white;
         transition: background-color 0.2s ease;
         cursor: pointer;
@@ -2781,7 +2781,7 @@ window.splitCells = (sectionId) => {
           outline: none;
           background: transparent;
           padding: 8px;
-          text-align: center;
+          text-align: left;
           font-size: 14px;
           height: 100%;
           line-height: 1.4;
@@ -2886,7 +2886,7 @@ window.splitCells = (sectionId) => {
         background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
         color: white;
         font-weight: 600;
-        text-align: center;
+        text-align: left;
         padding: 14px 12px;
         border: none;
         height: 46px;
@@ -2895,7 +2895,7 @@ window.splitCells = (sectionId) => {
       .stats-cell {
         padding: 12px 16px;
         border-right: 1px solid #91d5ff;
-        text-align: center;
+        text-align: left;
         background: #f0f9ff;
         cursor: pointer;
         transition: background-color 0.2s ease;

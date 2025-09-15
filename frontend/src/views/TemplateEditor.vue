@@ -115,7 +115,7 @@
       <div class="toolbar-group">
         <el-button @click="insertData">
           <el-icon><Connection /></el-icon>
-          插入数据
+          插入字段
         </el-button>
       </div>
       
@@ -173,22 +173,31 @@
         <!-- 数据集配置 -->
         <template v-if="fieldForm.insertType === 'DATASET'">
           <el-form-item label="数据集">
-            <el-select v-model="fieldForm.datasetName" style="width: 100%" @change="onDatasetChange">
+            <el-select
+              v-model="fieldForm.datasetId"
+              style="width: 100%"
+              @change="onConfiguredDatasetChange"
+              placeholder="请选择已配置的数据集"
+            >
               <el-option
-                v-for="dataset in mockDatasets"
-                :key="dataset.name"
-                :label="dataset.displayName"
-                :value="dataset.name"
-              />
+                v-for="dataset in configuredDatasets"
+                :key="dataset.id"
+                :label="dataset.name"
+                :value="dataset.id"
+              >
+                <div>
+                  <div>{{ dataset.name }}</div>
+                  <div style="font-size: 12px; color: #999;">{{ dataset.description }}</div>
+                </div>
+              </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item label="数据结构" v-if="fieldForm.datasetName">
-            <el-radio-group v-model="fieldForm.dataStructure">
-              <el-radio value="SINGLE">单条</el-radio>
-              <el-radio value="LIST">列表</el-radio>
-            </el-radio-group>
+          <el-form-item label="数据类型" v-if="selectedDataset">
+            <el-tag :type="selectedDataset.type === 'single' ? 'warning' : 'primary'">
+              {{ selectedDataset.type === 'single' ? '单条数据' : '列表数据' }}
+            </el-tag>
           </el-form-item>
-          <el-form-item label="sheet页配置" v-if="fieldForm.dataStructure === 'LIST'">
+          <el-form-item label="sheet页配置" v-if="selectedDataset && selectedDataset.type === 'list'">
             <el-radio-group v-model="fieldForm.sheetConfig">
               <el-radio value="CURRENT">当前sheet页</el-radio>
               <el-radio value="SEPARATE" disabled>单独sheet页</el-radio>
@@ -196,13 +205,21 @@
           </el-form-item>
 
           <!-- 字段选择 -->
-          <el-form-item label="展示字段" v-if="fieldForm.datasetName">
+          <el-form-item label="展示字段" v-if="selectedDataset && datasetPreview">
             <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
-              <el-checkbox-group v-model="fieldForm.displayFields">
-                <div v-for="field in currentDatasetFields" :key="field.name" style="margin-bottom: 8px;">
-                  <el-checkbox :value="field.name" style="width: 100%;">
-                    <span style="font-weight: 500;">{{ field.displayName }}</span>
-                    <span style="color: #666; font-size: 12px; margin-left: 8px;">({{ field.name }})</span>
+              <!-- 单条数据时使用单选 -->
+              <el-radio-group v-if="selectedDataset.type === 'single'" v-model="fieldForm.selectedField">
+                <div v-for="field in selectedDataset.fields" :key="field" style="margin-bottom: 8px;">
+                  <el-radio :value="field" style="width: 100%;">
+                    <span style="font-weight: 500;">{{ field }}</span>
+                  </el-radio>
+                </div>
+              </el-radio-group>
+              <!-- 列表数据时使用多选 -->
+              <el-checkbox-group v-else v-model="fieldForm.displayFields">
+                <div v-for="field in selectedDataset.fields" :key="field" style="margin-bottom: 8px;">
+                  <el-checkbox :value="field" style="width: 100%;">
+                    <span style="font-weight: 500;">{{ field }}</span>
                   </el-checkbox>
                 </div>
               </el-checkbox-group>
@@ -210,31 +227,31 @@
           </el-form-item>
 
           <!-- 字段值预览 -->
-          <el-form-item label="字段值" v-if="fieldForm.datasetName && fieldForm.displayFields.length > 0">
+          <el-form-item label="预览数据" v-if="datasetPreview && ((selectedDataset.type === 'single' && fieldForm.selectedField) || (selectedDataset.type === 'list' && fieldForm.displayFields.length > 0))">
             <div style="max-height: 200px; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
               <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                   <tr style="background: #e9ecef;">
-                    <th v-for="fieldName in fieldForm.displayFields" :key="fieldName"
+                    <th v-for="fieldName in (selectedDataset.type === 'single' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
                         style="padding: 8px; border: 1px solid #ddd; font-weight: 500; text-align: left;">
-                      {{ getFieldDisplayName(fieldName) }}
+                      {{ fieldName }}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(row, index) in currentDatasetData.slice(0, fieldForm.dataStructure === 'SINGLE' ? 1 : 4)"
+                  <tr v-for="(row, index) in (datasetPreview.data ? (selectedDataset.type === 'single' ? [datasetPreview.data] : datasetPreview.data.slice(0, 4)) : [])"
                       :key="index"
                       style="background: white;">
-                    <td v-for="fieldName in fieldForm.displayFields" :key="fieldName"
+                    <td v-for="fieldName in (selectedDataset.type === 'single' ? [fieldForm.selectedField] : fieldForm.displayFields)" :key="fieldName"
                         style="padding: 8px; border: 1px solid #ddd;">
                       {{ row[fieldName] }}
                     </td>
                   </tr>
                 </tbody>
               </table>
-              <div v-if="fieldForm.dataStructure === 'LIST' && currentDatasetData.length > 4"
+              <div v-if="selectedDataset.type === 'list' && datasetPreview.data && datasetPreview.data.length > 4"
                    style="padding: 8px; color: #666; text-align: center; font-size: 12px;">
-                共 {{ currentDatasetData.length }} 条数据，仅显示前 4 条预览
+                共 {{ datasetPreview.data.length }} 条数据，仅显示前 4 条预览
               </div>
             </div>
           </el-form-item>
@@ -309,6 +326,7 @@
         <el-button type="primary" @click="confirmInsertField">确定</el-button>
       </template>
     </el-dialog>
+
 
     <!-- 动态表格配置对话框 -->
     <el-dialog v-model="showTableDialog" title="配置动态表格" width="900px">
@@ -461,7 +479,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DocumentChecked,
@@ -475,7 +493,8 @@ import {
   Aim,
   Right,
   Back,
-  Loading
+  Loading,
+  Coin
 } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
@@ -507,6 +526,9 @@ const dragStart = ref(null) // 拖拽开始位置
 const dragEnd = ref(null) // 拖拽结束位置
 const mergeMode = ref(false) // 是否处于合并模式
 
+// 单元格数据集相关状态
+const currentEditingCell = ref(null) // 当前正在编辑的单元格
+
 // 对话框状态
 const showFieldDialog = ref(false)
 const showTableDialog = ref(false)
@@ -535,10 +557,24 @@ const fieldForm = reactive({
   datasetField: '',
   selectedColumns: [],
   // 数据集相关
-  datasetName: '',
+  datasetId: null, // 配置的数据集ID
+  datasetName: '', // 兼容旧的mock数据集
   dataStructure: 'SINGLE', // SINGLE 或 LIST
   sheetConfig: 'CURRENT', // CURRENT 或 SEPARATE
-  displayFields: []
+  displayFields: [],
+  selectedField: '' // 单条数据时选择的单个字段
+})
+
+// 数据集预览结果
+const datasetPreview = ref(null)
+const previewLoading = ref(false)
+
+// 配置的数据集列表（从API获取）
+const configuredDatasets = ref([])
+
+// 选中的数据集
+const selectedDataset = computed(() => {
+  return configuredDatasets.value.find(d => d.id === fieldForm.datasetId)
 })
 
 // Mock数据集
@@ -637,6 +673,32 @@ const getFieldDisplayName = (fieldName) => {
   const field = currentDatasetFields.value.find(f => f.name === fieldName)
   return field ? field.displayName : fieldName
 }
+
+// 监听字段对话框打开
+watch(() => showFieldDialog.value, async (newVal) => {
+  if (newVal) {
+    // 每次对话框打开时加载配置的数据集
+    await loadConfiguredDatasets()
+  }
+})
+
+// 监听数据结构变化
+watch(() => fieldForm.dataStructure, (newVal) => {
+  if (fieldForm.datasetName) {
+    const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
+    if (dataset && dataset.fields.length > 0) {
+      if (newVal === 'SINGLE') {
+        // 切换到单条时，清空多选字段，设置单选字段
+        fieldForm.displayFields = []
+        fieldForm.selectedField = dataset.fields[0].name
+      } else {
+        // 切换到列表时，清空单选字段，设置多选字段
+        fieldForm.selectedField = ''
+        fieldForm.displayFields = dataset.fields.slice(0, Math.min(3, dataset.fields.length)).map(f => f.name)
+      }
+    }
+  }
+})
 
 // 计算属性：格式化字段显示
 const getFieldDisplay = (field) => {
@@ -992,6 +1054,9 @@ const insertData = () => {
   // 保存当前光标位置
   saveCurrentSelection()
 
+  // 加载配置的数据集
+  loadConfiguredDatasets()
+
   showFieldDialog.value = true
   fieldForm.insertType = 'FIELD'
   fieldForm.name = ''
@@ -1001,6 +1066,12 @@ const insertData = () => {
   fieldForm.sqlQuery = ''
   fieldForm.defaultValue = ''
   fieldForm.dateFormat = 'YYYY-MM-DD'
+  // 清空数据集相关字段
+  fieldForm.datasetId = null
+  fieldForm.datasetName = ''
+  fieldForm.displayFields = []
+  fieldForm.selectedField = ''
+  datasetPreview.value = null
   fieldForm.systemVariable = 'CURRENT_USER'
   fieldForm.datasetField = ''
   fieldForm.selectedColumns = []
@@ -1009,6 +1080,7 @@ const insertData = () => {
   fieldForm.dataStructure = 'SINGLE'
   fieldForm.sheetConfig = 'CURRENT'
   fieldForm.displayFields = []
+  fieldForm.selectedField = ''
   datasetFields.value = []
   previewData.value = []
 }
@@ -1036,16 +1108,72 @@ const onDataSourceChange = async () => {
   }
 }
 
-// 数据集变化处理
+// 加载配置的数据集列表
+const loadConfiguredDatasets = async () => {
+  try {
+    const response = await fetch('/api/datasets')
+    const data = await response.json()
+    if (data.success) {
+      configuredDatasets.value = data.datasets || []
+    }
+  } catch (error) {
+    console.error('Failed to load datasets:', error)
+  }
+}
+
+// 配置的数据集选择变化处理
+const onConfiguredDatasetChange = async () => {
+  // 清空之前选择的字段
+  fieldForm.displayFields = []
+  fieldForm.selectedField = ''
+  datasetPreview.value = null
+
+  if (!fieldForm.datasetId) return
+
+  // 获取数据集预览
+  previewLoading.value = true
+  try {
+    const response = await fetch(`/api/datasets/${fieldForm.datasetId}/execute`)
+    const data = await response.json()
+
+    if (data.success && data.result) {
+      datasetPreview.value = data.result
+
+      // 根据数据类型设置默认选中的字段
+      if (selectedDataset.value) {
+        if (selectedDataset.value.type === 'single') {
+          // 单条数据时默认选中第一个字段
+          fieldForm.selectedField = selectedDataset.value.fields[0] || ''
+        } else {
+          // 列表数据时默认选中前几个字段
+          fieldForm.displayFields = selectedDataset.value.fields.slice(0, Math.min(3, selectedDataset.value.fields.length))
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to preview dataset:', error)
+    ElMessage.error('获取数据集预览失败')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+// 旧的Mock数据集变化处理（保留兼容）
 const onDatasetChange = () => {
   // 清空之前选择的字段
   fieldForm.displayFields = []
+  fieldForm.selectedField = ''
 
   if (fieldForm.datasetName) {
-    // 默认选中前几个字段
     const dataset = mockDatasets.value.find(d => d.name === fieldForm.datasetName)
     if (dataset && dataset.fields.length > 0) {
-      fieldForm.displayFields = dataset.fields.slice(0, Math.min(3, dataset.fields.length)).map(f => f.name)
+      if (fieldForm.dataStructure === 'SINGLE') {
+        // 单条数据时默认选中第一个字段
+        fieldForm.selectedField = dataset.fields[0].name
+      } else {
+        // 列表数据时默认选中前几个字段
+        fieldForm.displayFields = dataset.fields.slice(0, Math.min(3, dataset.fields.length)).map(f => f.name)
+      }
     }
   }
 }
@@ -1168,8 +1296,212 @@ const insertFieldElement = () => {
 
 // 插入数据集元素
 const insertDatasetElement = () => {
-  if (!fieldForm.datasetName || fieldForm.displayFields.length === 0) {
-    ElMessage.warning('请选择数据集和展示字段')
+  // 检查是否是在表格单元格中插入
+  const isTableCell = currentEditingCell.value !== null
+
+  // 优先使用配置的数据集
+  if (fieldForm.datasetId) {
+    if (!selectedDataset.value) {
+      ElMessage.warning('请选择数据集')
+      return
+    }
+
+    if (selectedDataset.value.type === 'single' && !fieldForm.selectedField) {
+      ElMessage.warning('请选择要展示的字段')
+      return
+    }
+
+    if (selectedDataset.value.type === 'list' && fieldForm.displayFields.length === 0) {
+      ElMessage.warning('请选择要展示的字段')
+      return
+    }
+
+    // 如果是表格单元格插入
+    if (isTableCell) {
+      const cell = currentEditingCell.value
+
+      if (selectedDataset.value.type === 'single') {
+        // 单条数据 - 在单元格中显示数据集名称和字段
+        const cellContent = `<div class="dataset-placeholder" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 5px 10px; border-radius: 4px; font-weight: 500; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); animation: pulse 2s infinite;">📊 ${selectedDataset.value.name}<br/><small style="opacity: 0.9;">${fieldForm.selectedField}</small></div>`
+        cell.innerHTML = cellContent
+      } else {
+        // 列表数据 - 扩展到表格的多个单元格
+        const table = cell.closest('table')
+        const row = cell.parentElement
+        const startCellIndex = cell.cellIndex
+        const startRowIndex = row.rowIndex
+
+        // 标记起始单元格为数据集占位符
+        cell.innerHTML = `<div class="dataset-placeholder-start" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-display-fields="${fieldForm.displayFields.join(',')}" data-data-type="list-start" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 6px; border-radius: 4px; font-weight: 500; font-size: 12px;">📊 ${selectedDataset.value.name}</div>`
+
+        // 为接下来的单元格添加占位符标记
+        const fieldsCount = fieldForm.displayFields.length
+
+        // 填充当前行剩余的单元格
+        for (let i = 1; i < fieldsCount && (startCellIndex + i) < row.cells.length; i++) {
+          const nextCell = row.cells[startCellIndex + i]
+          nextCell.innerHTML = `<div class="dataset-placeholder-field" data-field-index="${i}" style="background: linear-gradient(135deg, #e0e7ff 0%, #f0f4ff 100%); color: #667eea; padding: 3px 6px; border-radius: 2px; font-size: 11px; text-align: center;">${fieldForm.displayFields[i]}</div>`
+        }
+
+        // 如果需要，在下面的行继续填充
+        if (datasetPreview.value && datasetPreview.value.data) {
+          const previewData = Array.isArray(datasetPreview.value.data) ?
+            datasetPreview.value.data.slice(0, 3) : [datasetPreview.value.data]
+
+          for (let rowIdx = 0; rowIdx < previewData.length && (startRowIndex + rowIdx + 1) < table.rows.length; rowIdx++) {
+            const nextRow = table.rows[startRowIndex + rowIdx + 1]
+            for (let colIdx = 0; colIdx < fieldsCount && (startCellIndex + colIdx) < nextRow.cells.length; colIdx++) {
+              const dataCell = nextRow.cells[startCellIndex + colIdx]
+              dataCell.innerHTML = `<div class="dataset-placeholder-data" data-row="${rowIdx}" data-col="${colIdx}" style="color: #999; font-style: italic; font-size: 12px;">{{data}}</div>`
+            }
+          }
+        }
+      }
+
+      // 更新编辑器内容
+      const editorElement = document.getElementById('word-editor')
+      content.value = editorElement.innerHTML
+
+      // 清空当前编辑单元格引用
+      currentEditingCell.value = null
+
+      showFieldDialog.value = false
+      ElMessage.success('数据集已插入')
+      return
+    }
+
+    // 生成带数据集名称的表格HTML（非单元格插入）
+    let datasetHtml = ''
+
+    if (selectedDataset.value.type === 'single') {
+      // 单条数据 - 显示字段名和占位符
+      datasetHtml = `<span class="dynamic-field dataset-placeholder" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" contenteditable="false" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 10px; border-radius: 4px; font-weight: 500; display: inline-block; margin: 0 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📊 ${selectedDataset.value.name}:${fieldForm.selectedField}</span>`
+    } else {
+      // 列表数据 - 生成表格显示
+      const headerRow = fieldForm.displayFields.map(field =>
+        `<th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; font-weight: bold;">${field}</th>`
+      ).join('')
+
+      // 如果有预览数据，显示几行示例
+      let dataRows = ''
+      if (datasetPreview.value && datasetPreview.value.data) {
+        const previewData = Array.isArray(datasetPreview.value.data) ?
+          datasetPreview.value.data.slice(0, 3) :
+          [datasetPreview.value.data]
+
+        dataRows = previewData.map(row => {
+          const cells = fieldForm.displayFields.map(field =>
+            `<td style="border: 1px solid #ddd; padding: 8px;">${row[field] || '-'}</td>`
+          ).join('')
+          return `<tr>${cells}</tr>`
+        }).join('')
+      } else {
+        // 没有预览数据时显示占位符
+        const cells = fieldForm.displayFields.map(() =>
+          `<td style="border: 1px solid #ddd; padding: 8px; color: #999;">...</td>`
+        ).join('')
+        dataRows = `<tr>${cells}</tr>`
+      }
+
+      datasetHtml = `
+        <div class="dynamic-table"
+             data-dataset-id="${selectedDataset.value.id}"
+             data-dataset-name="${selectedDataset.value.name}"
+             data-display-fields="${fieldForm.displayFields.join(',')}"
+             data-data-type="list"
+             contenteditable="false"
+             style="margin: 10px 0;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; border-radius: 6px 6px 0 0; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            📊 数据集: ${selectedDataset.value.name}
+            <span style="float: right; font-size: 12px; opacity: 0.9; font-weight: normal;">
+              占位符: {{dataset:${selectedDataset.value.id}}}
+            </span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; border: 2px solid #667eea;">
+            <thead>
+              <tr style="background: #f8f9ff;">${headerRow}</tr>
+            </thead>
+            <tbody>
+              ${dataRows}
+            </tbody>
+          </table>
+          <div style="text-align: center; color: #666; font-size: 12px; padding: 8px; background: linear-gradient(to bottom, #f8f9ff, #ffffff); border: 2px solid #667eea; border-top: none; border-radius: 0 0 6px 6px; font-style: italic;">
+            🔄 ${selectedDataset.value.description || '数据将在导出时动态获取'}
+          </div>
+        </div>
+      `
+    }
+
+    // 插入到编辑器
+    const editorElement = document.getElementById('word-editor')
+    if (editorElement) {
+      editorElement.focus()
+
+      // 获取当前选区或恢复之前保存的位置
+      let range = restoreSelection()
+
+      if (!range) {
+        const selection = window.getSelection()
+        if (selection.rangeCount > 0) {
+          range = selection.getRangeAt(0)
+        } else {
+          // 如果没有选区，在编辑器末尾插入
+          range = document.createRange()
+          range.selectNodeContents(editorElement)
+          range.collapse(false)
+        }
+      }
+
+      // 确保range在编辑器内
+      if (!editorElement.contains(range.commonAncestorContainer)) {
+        range = document.createRange()
+        range.selectNodeContents(editorElement)
+        range.collapse(false)
+      }
+
+      // 创建临时容器解析HTML
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = datasetHtml
+      const element = tempDiv.firstElementChild
+
+      // 插入元素
+      range.deleteContents()
+      range.insertNode(element)
+
+      // 在元素后插入空格以便继续编辑
+      const space = document.createTextNode(' ')
+      range.setStartAfter(element)
+      range.insertNode(space)
+      range.setStartAfter(space)
+      range.collapse(true)
+
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+
+      // 更新内容
+      content.value = editorElement.innerHTML
+    }
+
+    showFieldDialog.value = false
+    currentEditingCell.value = null // 清空单元格引用
+    ElMessage.success('数据集已插入')
+    return
+  }
+
+  // 兼容旧的mock数据集
+  if (!fieldForm.datasetName) {
+    ElMessage.warning('请选择数据集')
+    return
+  }
+
+  if (fieldForm.dataStructure === 'SINGLE' && !fieldForm.selectedField) {
+    ElMessage.warning('请选择要展示的字段')
+    return
+  }
+
+  if (fieldForm.dataStructure === 'LIST' && fieldForm.displayFields.length === 0) {
+    ElMessage.warning('请选择要展示的字段')
     return
   }
 
@@ -1182,14 +1514,10 @@ const insertDatasetElement = () => {
   let datasetHtml = ''
 
   if (fieldForm.dataStructure === 'SINGLE') {
-    // 单条数据 - 生成字段变量
-    const fieldHtml = fieldForm.displayFields.map(fieldName => {
-      const field = dataset.fields.find(f => f.name === fieldName)
-      const displayName = field ? field.displayName : fieldName
-      return `<span class="dynamic-field" data-dataset-name="${fieldForm.datasetName}" data-field-name="${fieldName}" data-data-structure="SINGLE" contenteditable="false">{{${displayName}}}</span>`
-    }).join(' ')
-
-    datasetHtml = fieldHtml
+    // 单条数据 - 生成单个字段变量
+    const field = dataset.fields.find(f => f.name === fieldForm.selectedField)
+    const displayName = field ? field.displayName : fieldForm.selectedField
+    datasetHtml = `<span class="dynamic-field dataset-placeholder" data-dataset-name="${fieldForm.datasetName}" data-field-name="${fieldForm.selectedField}" data-data-structure="SINGLE" contenteditable="false" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 10px; border-radius: 4px; font-weight: 500; display: inline-block; margin: 0 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📊 {{${displayName}}}</span>`
   } else {
     // 列表数据 - 生成表格
     const headerRow = fieldForm.displayFields.map(fieldName => {
@@ -1208,19 +1536,26 @@ const insertDatasetElement = () => {
            data-display-fields="${fieldForm.displayFields.join(',')}"
            data-data-structure="LIST"
            data-sheet-config="${fieldForm.sheetConfig}"
-           contenteditable="false">
-        <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
+           contenteditable="false"
+           style="margin: 10px 0;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; border-radius: 6px 6px 0 0; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          📊 数据集: ${dataset.displayName}
+          <span style="float: right; font-size: 12px; opacity: 0.9; font-weight: normal;">
+            共 ${dataset.data.length} 条数据
+          </span>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; border: 2px solid #667eea;">
           <thead>
-            <tr>
-              <th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; font-weight: bold;">${headerRow}</th>
+            <tr style="background: #f8f9ff;">
+              <th style="border: 1px solid #ddd; padding: 8px; background: #f8f9ff; font-weight: bold;">${headerRow}</th>
             </tr>
           </thead>
           <tbody>
             ${dataRows}
           </tbody>
         </table>
-        <div style="text-align: center; color: #666; font-size: 12px; margin-top: 5px;">
-          数据集: ${dataset.displayName} | 共 ${dataset.data.length} 条数据 | 仅显示预览
+        <div style="text-align: center; color: #666; font-size: 12px; padding: 8px; background: linear-gradient(to bottom, #f8f9ff, #ffffff); border: 2px solid #667eea; border-top: none; border-radius: 0 0 6px 6px; font-style: italic;">
+          🔄 数据将在导出时动态获取 | 仅显示预览
         </div>
       </div>
     `
@@ -1996,6 +2331,74 @@ const adjustFontSize = (direction) => {
   changeFontSize(newSize)
 }
 
+// 处理单元格双击事件
+const handleCellDoubleClick = (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const cell = e.currentTarget
+  currentEditingCell.value = cell
+
+  // 检查单元格是否已经有数据集（包括单条数据和列表数据的起始标记）
+  const existingDataset = cell.querySelector('.dataset-placeholder, .dataset-placeholder-start')
+
+  // 保存当前光标位置
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.selectNodeContents(cell)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  savedSelection = range
+
+  // 重置表单
+  fieldForm.insertType = 'DATASET'
+  fieldForm.datasetId = null
+  fieldForm.selectedField = ''
+  fieldForm.displayFields = []
+
+  // 如果单元格已有数据集，回显选择
+  if (existingDataset) {
+    const datasetId = existingDataset.getAttribute('data-dataset-id')
+    const fieldName = existingDataset.getAttribute('data-field-name')
+    const dataType = existingDataset.getAttribute('data-data-type')
+    const displayFields = existingDataset.getAttribute('data-display-fields')
+
+    // 先加载数据集，然后回显选择
+    loadConfiguredDatasets().then(() => {
+      // 回显数据集选择
+      fieldForm.datasetId = datasetId
+
+      // 等待Vue更新后设置字段
+      nextTick(() => {
+        if (dataType === 'single' && fieldName) {
+          fieldForm.selectedField = fieldName
+          fieldForm.displayFields = []
+        } else if ((dataType === 'list' || dataType === 'list-start') && displayFields) {
+          fieldForm.displayFields = displayFields.split(',')
+          fieldForm.selectedField = ''
+        }
+
+        // 触发数据集选择变化以加载预览
+        if (datasetId) {
+          onConfiguredDatasetChange()
+        }
+      })
+    })
+  } else {
+    // 清空选择
+    fieldForm.datasetId = null
+    fieldForm.selectedField = ''
+    fieldForm.displayFields = []
+    datasetPreview.value = null
+  }
+
+  // 加载配置的数据集
+  loadConfiguredDatasets()
+
+  // 打开插入字段对话框
+  showFieldDialog.value = true
+}
+
 // 增强表格编辑功能
 const enhanceTableEditing = () => {
   const editorElement = document.getElementById('word-editor')
@@ -2038,10 +2441,14 @@ const enhanceTableEditing = () => {
       cell.removeEventListener('mousedown', handleCellMouseDown)
       cell.removeEventListener('mouseenter', handleCellMouseEnter)
       cell.removeEventListener('mouseup', handleCellMouseUp)
+      cell.removeEventListener('dblclick', handleCellDoubleClick)
 
       // 添加新的事件监听器
       cell.addEventListener('input', handleCellEdit)
       cell.addEventListener('blur', handleCellBlur)
+
+      // 添加双击事件处理数据集插入
+      cell.addEventListener('dblclick', handleCellDoubleClick)
 
       // 添加拖拽选择事件
       cell.addEventListener('mousedown', handleCellMouseDown)
@@ -3442,6 +3849,7 @@ onUnmounted(() => {
     table-layout: fixed !important;
     width: 100% !important;
     border-collapse: collapse;
+    border: 1px solid #000 !important;
   }
 
   #word-editor :deep(td),
@@ -3475,7 +3883,7 @@ onUnmounted(() => {
 
   #word-editor :deep(td),
   #word-editor :deep(th) {
-    border: 1px solid #ddd;
+    border: 1px solid #000;
     box-sizing: border-box;
   }
 
@@ -3526,12 +3934,82 @@ onUnmounted(() => {
   [contenteditable="true"] {
     cursor: text;
   }
-  
+
   /* 表格单元格编辑增强 */
   td:focus, th:focus {
     outline: 2px solid #007bff;
     outline-offset: -1px;
     background-color: rgba(0, 123, 255, 0.05);
+  }
+
+  /* 强制编辑器中所有表格显示黑色边框 */
+  #word-editor table {
+    border: 1px solid #000 !important;
+    border-collapse: collapse !important;
+  }
+
+  #word-editor table td,
+  #word-editor table th {
+    border: 1px solid #000 !important;
+  }
+
+  /* 对动态插入的表格也应用黑色边框 */
+  #word-editor .dynamic-table table {
+    border: 1px solid #000 !important;
+  }
+
+  #word-editor .dynamic-table table td,
+  #word-editor .dynamic-table table th {
+    border: 1px solid #000 !important;
+  }
+}
+
+/* 数据集占位符样式 */
+#word-editor .dataset-placeholder {
+  position: relative;
+  cursor: not-allowed;
+  user-select: none;
+  animation: pulse 2s infinite;
+}
+
+#word-editor .dataset-placeholder:hover {
+  transform: scale(1.05);
+  transition: transform 0.2s;
+}
+
+/* 数据集表格样式 */
+#word-editor .dynamic-table {
+  position: relative;
+  margin: 15px 0;
+  animation: fadeIn 0.5s;
+}
+
+#word-editor .dynamic-table:hover {
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transition: box-shadow 0.3s;
+}
+
+/* 动画效果 */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.5);
+  }
+  100% {
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

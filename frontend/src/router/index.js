@@ -21,6 +21,11 @@ const routes = [
     component: () => import('@/views/DataSources.vue')
   },
   {
+    path: '/datasets',
+    name: 'Datasets',
+    component: () => import('@/views/Datasets.vue')
+  },
+  {
     path: '/tasks',
     name: 'Tasks',
     component: () => import('@/views/Tasks.vue')

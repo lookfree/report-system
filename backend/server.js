@@ -13,6 +13,9 @@ const ReportGenerator = require('./utils/reportGenerator');
 const TaskScheduler = require('./utils/taskScheduler');
 const htmlWordConverter = require('./utils/htmlWordConverter');
 const VariableProcessor = require('./utils/variableProcessor');
+const datasetConfig = require('./models/DatasetConfig');
+const datasetService = require('./utils/datasetService');
+const datasetStore = require('./models/DatasetStore');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -1218,32 +1221,67 @@ app.post('/api/templates/import-word', upload.single('file'), async (req, res) =
   }
 });
 
-// Export HTML to Word document
+// Export HTML to Word document with dataset support
 app.post('/api/templates/:id/export-word', async (req, res) => {
   try {
     const { id } = req.params;
     const { htmlContent } = req.body;
-    
+
     if (!htmlContent) {
       return res.status(400).json({ error: '缺少HTML内容' });
     }
-    
+
     // 获取模板信息
     const template = await prisma.rs_report_templates.findUnique({
       where: { id }
     });
-    
+
     if (!template) {
       return res.status(404).json({ error: '模板不存在' });
     }
-    
+
+    // 处理HTML中的数据集占位符
+    console.log('📊 Processing datasets for template:', id);
+    let processedHtml = htmlContent;
+
+    // 查找所有数据集占位符 {{dataset:id:name}}
+    const datasetPattern = /\{\{dataset:(\d+):([^}]+)\}\}/g;
+    const matches = [...processedHtml.matchAll(datasetPattern)];
+
+    for (const match of matches) {
+      const [placeholder, datasetId, datasetName] = match;
+      console.log(`Processing dataset: ${datasetName} (ID: ${datasetId})`);
+
+      try {
+        // 获取数据集并执行查询
+        const dataset = datasetStore.getDataset(datasetId);
+        if (dataset) {
+          const rows = await prisma.$queryRawUnsafe(dataset.sqlQuery);
+          const dataResult = {
+            type: dataset.type,
+            fields: dataset.fields,
+            data: dataset.type === 'single' ? rows[0] || {} : rows
+          };
+
+          const dataHtml = formatDatasetAsHtml(dataResult);
+          processedHtml = processedHtml.replace(placeholder, dataHtml);
+        } else {
+          console.warn(`Dataset not found: ${datasetId}`);
+          processedHtml = processedHtml.replace(placeholder, `[数据集未找到: ${datasetName}]`);
+        }
+      } catch (error) {
+        console.error(`Error processing dataset ${datasetId}:`, error);
+        processedHtml = processedHtml.replace(placeholder, `[数据集错误: ${error.message}]`);
+      }
+    }
+
     // 生成输出文件路径
     const outputFileName = `${template.name}_${Date.now()}.docx`;
     const outputPath = path.join(process.env.REPORTS_DIR, outputFileName);
-    
+
     // 转换HTML为Word，传递prisma实例用于数据查询
-    await htmlWordConverter.htmlToWord(htmlContent, outputPath, prisma);
-    
+    await htmlWordConverter.htmlToWord(processedHtml, outputPath, prisma);
+
     // 发送文件
     res.download(outputPath, outputFileName, (err) => {
       if (err) {
@@ -1254,11 +1292,52 @@ app.post('/api/templates/:id/export-word', async (req, res) => {
     });
   } catch (error) {
     console.error('Word export error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message || '文档导出失败'
     });
   }
 });
+
+// Helper function to format dataset as HTML
+function formatDatasetAsHtml(datasetResult) {
+  if (!datasetResult) return '';
+
+  switch (datasetResult.type) {
+    case 'text':
+      return datasetResult.value;
+
+    case 'single':
+      const values = datasetResult.fields.map(field =>
+        `<strong>${field}:</strong> ${datasetResult.data[field] || ''}`
+      );
+      return values.join('<br>');
+
+    case 'list':
+      let html = '<table border="1" style="border-collapse: collapse; width: 100%;">';
+      // Add header
+      html += '<tr>';
+      datasetResult.fields.forEach(field => {
+        html += `<th style="padding: 8px; background-color: #f2f2f2;">${field}</th>`;
+      });
+      html += '</tr>';
+      // Add data rows
+      datasetResult.data.forEach(row => {
+        html += '<tr>';
+        datasetResult.fields.forEach(field => {
+          html += `<td style="padding: 8px;">${row[field] || ''}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</table>';
+      return html;
+
+    case 'error':
+      return `<span style="color: red;">Error: ${datasetResult.message}</span>`;
+
+    default:
+      return '';
+  }
+}
 
 // Save template with HTML content
 app.post('/api/templates/:id/save-html', async (req, res) => {
@@ -1370,6 +1449,275 @@ app.get('/api/datasources/:id/fields', async (req, res) => {
     });
   }
 });
+
+// Dataset Configuration APIs
+// 配置单元格数据集
+app.post('/api/templates/:templateId/cells/:cellId/dataset', async (req, res) => {
+  try {
+    const { templateId, cellId } = req.params;
+    const config = req.body;
+
+    console.log('📊 Configuring dataset for cell:', cellId, 'in template:', templateId);
+
+    datasetConfig.addConfig(parseInt(templateId), cellId, config);
+
+    res.json({
+      success: true,
+      message: '数据集配置已保存'
+    });
+  } catch (error) {
+    console.error('Dataset config error:', error);
+    res.status(500).json({ error: error.message || '配置保存失败' });
+  }
+});
+
+// 获取单元格数据集配置
+app.get('/api/templates/:templateId/cells/:cellId/dataset', async (req, res) => {
+  try {
+    const { templateId, cellId } = req.params;
+    const config = datasetConfig.getConfig(parseInt(templateId), cellId);
+
+    res.json({
+      success: true,
+      config: config || null
+    });
+  } catch (error) {
+    console.error('Get dataset config error:', error);
+    res.status(500).json({ error: error.message || '获取配置失败' });
+  }
+});
+
+// 获取模板所有数据集配置
+app.get('/api/templates/:templateId/datasets', async (req, res) => {
+  try {
+    const { templateId } = req.params;
+    const configs = datasetConfig.getTemplateConfigs(parseInt(templateId));
+
+    res.json({
+      success: true,
+      configs: configs
+    });
+  } catch (error) {
+    console.error('Get template datasets error:', error);
+    res.status(500).json({ error: error.message || '获取配置失败' });
+  }
+});
+
+// 获取数据集实际数据（用于预览）
+app.get('/api/templates/:templateId/cells/:cellId/dataset-data', async (req, res) => {
+  try {
+    const { templateId, cellId } = req.params;
+    const data = await datasetService.executeDatasetQuery(parseInt(templateId), cellId);
+
+    res.json({
+      success: true,
+      data: data
+    });
+  } catch (error) {
+    console.error('Get dataset data error:', error);
+    res.status(500).json({ error: error.message || '获取数据失败' });
+  }
+});
+
+// ============ 数据集管理 API ============
+
+// 获取所有数据集
+app.get('/api/datasets', async (req, res) => {
+  try {
+    const datasets = datasetStore.getAllDatasets();
+    res.json({
+      success: true,
+      datasets: datasets
+    });
+  } catch (error) {
+    console.error('Get datasets error:', error);
+    res.status(500).json({ error: error.message || '获取数据集失败' });
+  }
+});
+
+// 创建数据集
+app.post('/api/datasets', async (req, res) => {
+  try {
+    const { name, description, type, sqlQuery, fields } = req.body;
+
+    if (!name || !sqlQuery || !fields || fields.length === 0) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+
+    const dataset = datasetStore.addDataset({
+      name,
+      description,
+      type,
+      sqlQuery,
+      fields
+    });
+
+    res.json({
+      success: true,
+      dataset: dataset
+    });
+  } catch (error) {
+    console.error('Create dataset error:', error);
+    res.status(500).json({ error: error.message || '创建数据集失败' });
+  }
+});
+
+// 更新数据集
+app.put('/api/datasets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const dataset = datasetStore.updateDataset(id, updates);
+    if (!dataset) {
+      return res.status(404).json({ error: '数据集不存在' });
+    }
+
+    res.json({
+      success: true,
+      dataset: dataset
+    });
+  } catch (error) {
+    console.error('Update dataset error:', error);
+    res.status(500).json({ error: error.message || '更新数据集失败' });
+  }
+});
+
+// 删除数据集
+app.delete('/api/datasets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const success = datasetStore.deleteDataset(id);
+    if (!success) {
+      return res.status(404).json({ error: '数据集不存在' });
+    }
+
+    res.json({
+      success: true,
+      message: '删除成功'
+    });
+  } catch (error) {
+    console.error('Delete dataset error:', error);
+    res.status(500).json({ error: error.message || '删除数据集失败' });
+  }
+});
+
+// 预览数据集数据
+app.post('/api/datasets/preview', async (req, res) => {
+  try {
+    const { sqlQuery, type, fields } = req.body;
+
+    if (!sqlQuery) {
+      return res.status(400).json({ error: '缺少SQL查询' });
+    }
+
+    // 执行查询
+    const rows = await prisma.$queryRawUnsafe(sqlQuery);
+
+    const result = {
+      type: type || 'list',
+      fields: fields || (rows[0] ? Object.keys(rows[0]) : []),
+      data: type === 'single' ? rows[0] || {} : rows
+    };
+
+    res.json({
+      success: true,
+      result: result
+    });
+  } catch (error) {
+    console.error('Preview dataset error:', error);
+    res.json({
+      success: true,
+      result: {
+        type: 'error',
+        message: error.message
+      }
+    });
+  }
+});
+
+// 执行数据集查询 - 连接真实PostgreSQL数据库
+app.get('/api/datasets/:id/execute', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const dataset = datasetStore.getDataset(id);
+    if (!dataset) {
+      return res.status(404).json({ error: '数据集不存在' });
+    }
+
+    console.log(`📊 执行数据集查询: ${dataset.name} (ID: ${id})`);
+    console.log(`SQL: ${dataset.sqlQuery}`);
+
+    let result;
+
+    try {
+      // 尝试执行真实数据库查询
+      const rows = await prisma.$queryRawUnsafe(dataset.sqlQuery);
+      console.log(`✅ 查询成功，返回 ${rows.length} 条记录`);
+
+      result = {
+        type: dataset.type,
+        fields: dataset.fields,
+        data: dataset.type === 'single' ? rows[0] || {} : rows,
+        source: 'database'
+      };
+    } catch (dbError) {
+      console.warn(`⚠️ 数据库查询失败: ${dbError.message}`);
+      console.log('📦 使用模拟数据作为备选');
+
+      // 如果数据库查询失败，使用模拟数据
+      const mockData = getMockDataForDataset(dataset);
+      result = {
+        type: dataset.type,
+        fields: dataset.fields,
+        data: mockData,
+        source: 'mock',
+        message: '使用模拟数据（数据库连接失败）'
+      };
+    }
+
+    res.json({
+      success: true,
+      result: result
+    });
+  } catch (error) {
+    console.error('Execute dataset error:', error);
+    res.json({
+      success: true,
+      result: {
+        type: 'error',
+        message: error.message
+      }
+    });
+  }
+});
+
+// 获取数据集的模拟数据
+function getMockDataForDataset(dataset) {
+  // 根据数据集名称返回相应的模拟数据
+  const mockDataMap = {
+    '模板列表': [
+      { id: 1, name: '安全审计报告模板', createdAt: '2024-01-15', updatedAt: '2024-01-20', status: '已发布' },
+      { id: 2, name: '接口安全评估表', createdAt: '2024-01-16', updatedAt: '2024-01-21', status: '草稿' },
+      { id: 3, name: '漏洞扫描报告', createdAt: '2024-01-17', updatedAt: '2024-01-22', status: '已发布' }
+    ],
+    '审计数据': [
+      { audit_name: '2024年第一季度安全审计', audit_date: '2024-03-31', risk_level: '高', department: '信息安全部', rectification_status: '整改中' },
+      { audit_name: '接口安全专项检查', audit_date: '2024-03-15', risk_level: '中', department: '开发部', rectification_status: '已完成' },
+      { audit_name: '数据库权限审计', audit_date: '2024-03-01', risk_level: '低', department: '运维部', rectification_status: '待处理' }
+    ],
+    '安全事件': [
+      { incident_id: 'SEC-2024-001', incident_title: 'SQL注入攻击', occurrence_time: '2024-03-20 14:30', incident_type: '注入攻击', severity: '高' },
+      { incident_id: 'SEC-2024-002', incident_title: 'XSS跨站脚本', occurrence_time: '2024-03-21 10:15', incident_type: 'XSS攻击', severity: '中' },
+      { incident_id: 'SEC-2024-003', incident_title: '弱密码告警', occurrence_time: '2024-03-22 09:00', incident_type: '认证安全', severity: '低' }
+    ]
+  };
+
+  const data = mockDataMap[dataset.name] || [];
+  return dataset.type === 'single' ? data[0] || {} : data;
+}
 
 // Process template variables (for dynamic export)
 app.post('/api/templates/:id/process-variables', async (req, res) => {
