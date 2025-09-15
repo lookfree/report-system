@@ -319,6 +319,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showFieldDialog = false">取消</el-button>
+        <el-button type="danger" @click="clearCurrentCellDataset" v-if="currentEditingCell && fieldForm.insertType === 'DATASET'">清除数据集</el-button>
         <el-button type="primary" @click="confirmInsertField">确定</el-button>
       </template>
     </el-dialog>
@@ -1325,7 +1326,7 @@ const insertDatasetElement = () => {
 
       if (fieldForm.displayMode === 'SINGLE') {
         // 单条模式 - 在光标位置插入数据集字段占位符（支持多个字段混合文本）
-        const placeholder = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px;">📊${fieldForm.selectedField}</span>`
+        const placeholder = `<span class="dataset-placeholder-inline" contenteditable="false" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
 
         // 获取当前光标位置并插入占位符
         const selection = window.getSelection()
@@ -2436,6 +2437,78 @@ const handleCellDoubleClick = (e) => {
 
   // 打开插入数据对话框
   showFieldDialog.value = true
+}
+
+// 清除当前单元格的数据集
+const clearCurrentCellDataset = () => {
+  if (!currentEditingCell.value) return
+
+  // 清除单元格中的所有数据集占位符
+  const placeholders = currentEditingCell.value.querySelectorAll('.dataset-placeholder, .dataset-placeholder-inline, .dataset-placeholder-start')
+  placeholders.forEach(p => p.remove())
+
+  // 如果单元格为空，添加默认文本
+  if (!currentEditingCell.value.textContent.trim()) {
+    currentEditingCell.value.textContent = ' '
+  }
+
+  // 更新内容
+  const editorElement = document.getElementById('word-editor')
+  content.value = editorElement.innerHTML
+  hasUnsavedChanges.value = true
+
+  showFieldDialog.value = false
+  ElMessage.success('已清除单元格数据集')
+}
+
+// 处理内联数据集占位符的交互
+const handleInlineDatasetInteraction = () => {
+  const editorElement = document.getElementById('word-editor')
+  if (!editorElement) return
+
+  // 双击删除功能
+  editorElement.addEventListener('dblclick', (e) => {
+    const target = e.target
+    if (target.classList.contains('dataset-placeholder-inline')) {
+      e.preventDefault()
+      e.stopPropagation()
+
+      ElMessageBox.confirm('确定要删除这个数据集字段吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        target.remove()
+        content.value = editorElement.innerHTML
+        hasUnsavedChanges.value = true
+        ElMessage.success('已删除数据集字段')
+      }).catch(() => {})
+    }
+  })
+
+  // 键盘删除功能
+  editorElement.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace')) {
+      const selection = window.getSelection()
+      if (!selection.rangeCount) return
+
+      const range = selection.getRangeAt(0)
+      let node = range.startContainer
+
+      // 查找最近的内联占位符
+      while (node && node !== editorElement) {
+        if (node.nodeType === 1 && node.classList && node.classList.contains('dataset-placeholder-inline')) {
+          e.preventDefault()
+          node.remove()
+          content.value = editorElement.innerHTML
+          hasUnsavedChanges.value = true
+          ElMessage.success('已删除数据集字段')
+          return
+        }
+        node = node.parentNode
+      }
+    }
+  })
 }
 
 // 增强表格编辑功能
@@ -3601,6 +3674,11 @@ onMounted(() => {
   loadDataSources()
   // 初始化编辑器
   initEditor()
+
+  // 处理内联数据集占位符交互
+  setTimeout(() => {
+    handleInlineDatasetInteraction()
+  }, 500)
 
   // 延迟增强表格编辑功能
   setTimeout(() => {
