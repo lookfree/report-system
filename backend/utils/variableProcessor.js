@@ -371,6 +371,10 @@ class VariableProcessor {
 
     // 匹配内联的span格式占位符
     const inlineRegex = /<span[^>]*class="dataset-placeholder-inline"[^>]*>[\s\S]*?<\/span>/g;
+
+    // 调试：检查是否有匹配的内联占位符
+    const matches = html.match(inlineRegex);
+    console.log(`📊 Found ${matches ? matches.length : 0} inline dataset placeholders`);
     let processedHtml = html;
     let match;
 

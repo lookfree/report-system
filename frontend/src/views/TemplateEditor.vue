@@ -1326,7 +1326,7 @@ const insertDatasetElement = () => {
 
       if (fieldForm.displayMode === 'SINGLE') {
         // 单条模式 - 在光标位置插入数据集字段占位符（支持多个字段混合文本）
-        const placeholder = `<span class="dataset-placeholder-inline" contenteditable="false" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
+        const placeholder = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
 
         // 获取当前光标位置并插入占位符
         const selection = window.getSelection()
