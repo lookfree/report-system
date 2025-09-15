@@ -148,7 +148,7 @@
     </div>
 
     <!-- 数据插入配置对话框 -->
-    <el-dialog v-model="showFieldDialog" title="插入数据" width="800px">
+    <el-dialog v-model="showFieldDialog" title="插入数据" width="800px" @close="handleDialogClose">
       <el-form :model="fieldForm" label-width="100px">
         <el-form-item label="展示内容">
           <el-radio-group v-model="fieldForm.insertType">
@@ -795,7 +795,11 @@ const loadTemplate = async () => {
     console.log('No template ID, skipping load')
     return
   }
-  
+
+  // 清理状态
+  currentEditingCell.value = null
+  savedSelection = null
+
   try {
     console.log('Loading template:', templateId.value)
     const template = await api.getTemplate(templateId.value)
@@ -1052,6 +1056,22 @@ const insertData = () => {
   // 保存当前光标位置
   saveCurrentSelection()
 
+  // 检查光标是否在表格单元格中
+  const selection = window.getSelection()
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0)
+    let node = range.commonAncestorContainer
+
+    // 向上查找最近的td或th元素
+    while (node && node !== document.getElementById('word-editor')) {
+      if (node.nodeType === 1 && (node.tagName === 'TD' || node.tagName === 'TH')) {
+        currentEditingCell.value = node
+        break
+      }
+      node = node.parentNode
+    }
+  }
+
   // 加载配置的数据集
   loadConfiguredDatasets()
 
@@ -1286,21 +1306,26 @@ const insertFieldElement = () => {
     // 将光标移动到插入的字段后面
     range.setStartAfter(fieldElement)
     range.collapse(true)
+    const selection = window.getSelection()
     selection.removeAllRanges()
     selection.addRange(range)
     
     // 更新响应式数据
     content.value = editorElement.innerHTML
   }
-  
+
+  // 清理状态
+  currentEditingCell.value = null
   showFieldDialog.value = false
   ElMessage.success('展示字段已插入到光标位置')
 }
 
 // 插入数据集元素
 const insertDatasetElement = () => {
-  // 检查是否是在表格单元格中插入
-  const isTableCell = currentEditingCell.value !== null
+  // 检查是否是在表格单元格中插入，并且单元格确实是td或th元素
+  const isTableCell = currentEditingCell.value !== null &&
+                     currentEditingCell.value.tagName &&
+                     (currentEditingCell.value.tagName === 'TD' || currentEditingCell.value.tagName === 'TH')
 
   // 优先使用配置的数据集
   if (fieldForm.datasetId) {
@@ -1326,61 +1351,55 @@ const insertDatasetElement = () => {
 
       if (fieldForm.displayMode === 'SINGLE') {
         // 单条模式 - 在光标位置插入数据集字段占位符（支持多个字段混合文本）
-        const placeholderHTML = `<span class="dataset-placeholder-inline" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" data-display-mode="SINGLE" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;" title="双击删除或按Delete键删除">📊${fieldForm.selectedField}</span>`
-
-        // 获取当前光标位置并插入占位符
+        // 使用保存的光标位置或获取当前光标位置
         const selection = window.getSelection()
-        if (selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0)
+        let range = null
 
-          // 如果是在单元格内，确保range在单元格内
-          if (cell.contains(range.commonAncestorContainer)) {
-            // 在光标位置插入占位符
-            const placeholderElement = document.createElement('span')
-            placeholderElement.className = 'dataset-placeholder-inline'
-            placeholderElement.setAttribute('data-dataset-id', selectedDataset.value.id)
-            placeholderElement.setAttribute('data-dataset-name', selectedDataset.value.name)
-            placeholderElement.setAttribute('data-field-name', fieldForm.selectedField)
-            placeholderElement.setAttribute('data-data-type', 'single')
-            placeholderElement.setAttribute('data-display-mode', 'SINGLE')
-            placeholderElement.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;'
-            placeholderElement.title = '双击删除或按Delete键删除'
-            placeholderElement.textContent = `📊${fieldForm.selectedField}`
-
-            range.insertNode(placeholderElement)
-
-            // 在占位符后面插入一个空格，便于继续输入
-            const space = document.createTextNode(' ')
-            placeholderElement.parentNode.insertBefore(space, placeholderElement.nextSibling)
-
-            // 移动光标到空格后面
-            range.setStartAfter(space)
-            range.collapse(true)
-            selection.removeAllRanges()
-            selection.addRange(range)
-
-            // 更新编辑器内容
-            const editorElement = document.getElementById('word-editor')
-            content.value = editorElement.innerHTML
-            hasUnsavedChanges.value = true
-          } else {
-            // 如果光标不在单元格内，追加到单元格末尾
-            cell.innerHTML += placeholderHTML + ' '
-
-            // 更新编辑器内容
-            const editorElement = document.getElementById('word-editor')
-            content.value = editorElement.innerHTML
-            hasUnsavedChanges.value = true
-          }
-        } else {
-          // 没有选区时，追加到单元格末尾
-          cell.innerHTML += placeholderHTML + ' '
-
-          // 更新编辑器内容
-          const editorElement = document.getElementById('word-editor')
-          content.value = editorElement.innerHTML
-          hasUnsavedChanges.value = true
+        // 优先使用保存的光标位置
+        if (savedSelection && cell.contains(savedSelection.commonAncestorContainer)) {
+          range = savedSelection
+          selection.removeAllRanges()
+          selection.addRange(range)
+        } else if (selection.rangeCount > 0) {
+          range = selection.getRangeAt(0)
         }
+
+        // 创建占位符元素
+        const placeholderElement = document.createElement('span')
+        placeholderElement.className = 'dataset-placeholder-inline'
+        placeholderElement.setAttribute('data-dataset-id', selectedDataset.value.id)
+        placeholderElement.setAttribute('data-dataset-name', selectedDataset.value.name)
+        placeholderElement.setAttribute('data-field-name', fieldForm.selectedField)
+        placeholderElement.setAttribute('data-data-type', 'single')
+        placeholderElement.setAttribute('data-display-mode', 'SINGLE')
+        placeholderElement.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-weight: 500; font-size: 0.9em; display: inline-block; margin: 0 2px; cursor: pointer; user-select: none;'
+        placeholderElement.title = '双击删除或按Delete键删除'
+        placeholderElement.textContent = `📊${fieldForm.selectedField}`
+
+        if (range && cell.contains(range.commonAncestorContainer)) {
+          // 在光标位置插入占位符
+          range.insertNode(placeholderElement)
+
+          // 在占位符后面插入一个空格，便于继续输入
+          const space = document.createTextNode(' ')
+          placeholderElement.parentNode.insertBefore(space, placeholderElement.nextSibling)
+
+          // 移动光标到空格后面
+          range.setStartAfter(space)
+          range.collapse(true)
+          selection.removeAllRanges()
+          selection.addRange(range)
+        } else {
+          // 如果没有有效的range或range不在单元格内，追加到单元格末尾
+          cell.appendChild(placeholderElement)
+          const space = document.createTextNode(' ')
+          cell.appendChild(space)
+        }
+
+        // 更新编辑器内容
+        const editorElement = document.getElementById('word-editor')
+        content.value = editorElement.innerHTML
+        hasUnsavedChanges.value = true
       } else if (fieldForm.displayMode === 'LIST') {
         // 列表模式 - 扩展到表格的多个单元格
         const table = cell.closest('table')
@@ -1434,31 +1453,10 @@ const insertDatasetElement = () => {
       // 单条数据 - 显示字段名和占位符
       datasetHtml = `<span class="dynamic-field dataset-placeholder" data-dataset-id="${selectedDataset.value.id}" data-dataset-name="${selectedDataset.value.name}" data-field-name="${fieldForm.selectedField}" data-data-type="single" contenteditable="false" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 10px; border-radius: 4px; font-weight: 500; display: inline-block; margin: 0 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📊 ${selectedDataset.value.name}:${fieldForm.selectedField}</span>`
     } else {
-      // 列表数据 - 生成表格显示
+      // 列表数据 - 创建动态占位符，包含基本表格结构供后端处理
       const headerRow = fieldForm.displayFields.map(field =>
         `<th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; font-weight: bold;">${field}</th>`
       ).join('')
-
-      // 如果有预览数据，显示几行示例
-      let dataRows = ''
-      if (datasetPreview.value && datasetPreview.value.data) {
-        const previewData = Array.isArray(datasetPreview.value.data) ?
-          datasetPreview.value.data.slice(0, 3) :
-          [datasetPreview.value.data]
-
-        dataRows = previewData.map(row => {
-          const cells = fieldForm.displayFields.map(field =>
-            `<td style="border: 1px solid #ddd; padding: 8px;">${row[field] || '-'}</td>`
-          ).join('')
-          return `<tr>${cells}</tr>`
-        }).join('')
-      } else {
-        // 没有预览数据时显示占位符
-        const cells = fieldForm.displayFields.map(() =>
-          `<td style="border: 1px solid #ddd; padding: 8px; color: #999;">...</td>`
-        ).join('')
-        dataRows = `<tr>${cells}</tr>`
-      }
 
       datasetHtml = `
         <div class="dynamic-table"
@@ -1479,7 +1477,11 @@ const insertDatasetElement = () => {
               <tr style="background: #f8f9ff;">${headerRow}</tr>
             </thead>
             <tbody>
-              ${dataRows}
+              <tr>
+                ${fieldForm.displayFields.map(() =>
+                  `<td style="border: 1px solid #ddd; padding: 8px; color: #999; font-style: italic;">动态数据</td>`
+                ).join('')}
+              </tr>
             </tbody>
           </table>
           <div style="text-align: center; color: #666; font-size: 12px; padding: 8px; background: linear-gradient(to bottom, #f8f9ff, #ffffff); border: 2px solid #667eea; border-top: none; border-radius: 0 0 6px 6px; font-style: italic;">
@@ -1968,6 +1970,10 @@ const beforeUpload = (file) => {
 // 处理上传成功
 const handleUploadSuccess = (response) => {
   if (response.htmlContent) {
+    // 清理状态
+    currentEditingCell.value = null
+    savedSelection = null
+
     content.value = response.htmlContent
     // 更新HTML编辑器内容
     const editorElement = document.getElementById('word-editor')
@@ -2388,6 +2394,12 @@ const adjustFontSize = (direction) => {
   changeFontSize(newSize)
 }
 
+// 处理对话框关闭
+const handleDialogClose = () => {
+  // 清空当前编辑单元格引用
+  currentEditingCell.value = null
+}
+
 // 处理单元格双击事件
 const handleCellDoubleClick = (e) => {
   e.preventDefault()
@@ -2396,16 +2408,21 @@ const handleCellDoubleClick = (e) => {
   const cell = e.currentTarget
   currentEditingCell.value = cell
 
-  // 检查单元格是否已经有数据集（包括单条数据和列表数据的起始标记）
-  const existingDataset = cell.querySelector('.dataset-placeholder, .dataset-placeholder-start')
+  // 检查单元格是否已经有数据集（包括单条数据、内联数据和列表数据的起始标记）
+  const existingDataset = cell.querySelector('.dataset-placeholder, .dataset-placeholder-inline, .dataset-placeholder-start')
 
-  // 保存当前光标位置
+  // 保存当前光标位置（不改变用户的选择）
   const selection = window.getSelection()
-  const range = document.createRange()
-  range.selectNodeContents(cell)
-  selection.removeAllRanges()
-  selection.addRange(range)
-  savedSelection = range
+  if (selection.rangeCount > 0) {
+    // 保存用户当前的光标位置
+    savedSelection = selection.getRangeAt(0).cloneRange()
+  } else {
+    // 如果没有选区，创建一个在单元格末尾的range
+    const range = document.createRange()
+    range.selectNodeContents(cell)
+    range.collapse(false) // 移动到末尾
+    savedSelection = range
+  }
 
   // 重置表单
   fieldForm.insertType = 'DATASET'
@@ -2497,6 +2514,8 @@ const handleInlineDatasetInteraction = () => {
   // 双击删除功能
   editorElement.addEventListener('dblclick', (e) => {
     const target = e.target
+
+    // 删除内联数据集字段
     if (target.classList.contains('dataset-placeholder-inline')) {
       e.preventDefault()
       e.stopPropagation()
@@ -2512,6 +2531,26 @@ const handleInlineDatasetInteraction = () => {
         ElMessage.success('已删除数据集字段')
       }).catch(() => {})
     }
+
+    // 删除动态表格（文档中插入的列表）
+    else if (target.closest('.dynamic-table')) {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const dynamicTable = target.closest('.dynamic-table')
+      const datasetName = dynamicTable.getAttribute('data-dataset-name')
+
+      ElMessageBox.confirm(`确定要删除数据集"${datasetName}"吗？`, '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        dynamicTable.remove()
+        content.value = editorElement.innerHTML
+        hasUnsavedChanges.value = true
+        ElMessage.success('已删除数据集列表')
+      }).catch(() => {})
+    }
   })
 
   // 键盘删除功能
@@ -2523,15 +2562,34 @@ const handleInlineDatasetInteraction = () => {
       const range = selection.getRangeAt(0)
       let node = range.startContainer
 
-      // 查找最近的内联占位符
+      // 查找最近的内联占位符或动态表格
       while (node && node !== editorElement) {
-        if (node.nodeType === 1 && node.classList && node.classList.contains('dataset-placeholder-inline')) {
-          e.preventDefault()
-          node.remove()
-          content.value = editorElement.innerHTML
-          hasUnsavedChanges.value = true
-          ElMessage.success('已删除数据集字段')
-          return
+        if (node.nodeType === 1 && node.classList) {
+          // 删除内联数据集字段
+          if (node.classList.contains('dataset-placeholder-inline')) {
+            e.preventDefault()
+            node.remove()
+            content.value = editorElement.innerHTML
+            hasUnsavedChanges.value = true
+            ElMessage.success('已删除数据集字段')
+            return
+          }
+          // 删除动态表格
+          else if (node.classList.contains('dynamic-table')) {
+            e.preventDefault()
+            const datasetName = node.getAttribute('data-dataset-name')
+            ElMessageBox.confirm(`确定要删除数据集"${datasetName}"吗？`, '提示', {
+              confirmButtonText: '确定',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }).then(() => {
+              node.remove()
+              content.value = editorElement.innerHTML
+              hasUnsavedChanges.value = true
+              ElMessage.success('已删除数据集列表')
+            }).catch(() => {})
+            return
+          }
         }
         node = node.parentNode
       }

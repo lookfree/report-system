@@ -9,7 +9,7 @@ class DatasetStore {
       name: '模板列表',
       description: '获取系统中的报表模板列表',
       type: 'list',
-      sqlQuery: 'SELECT id, name, "createdAt" FROM rs_report_templates LIMIT 5',
+      sqlQuery: 'SELECT id, name, "createdAt" FROM rs_report_templates ORDER BY "createdAt" DESC LIMIT 10',
       fields: ['id', 'name', 'createdAt']
     });
   }

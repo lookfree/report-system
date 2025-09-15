@@ -234,23 +234,25 @@ class VariableProcessor {
    * 生成表格HTML
    */
   generateTableHtml(title, data, originalDiv) {
+    // 如果没有数据，返回空内容或只显示表格结构
     if (!data || data.length === 0) {
-      return `<div><h4>${title}</h4><p>暂无数据</p></div>`;
+      // 直接返回空，不显示"暂无数据"
+      return '';
     }
-    
+
     // 获取表头
     const headers = Object.keys(data[0]);
-    
-    let html = `<div><h4>${title}</h4>`;
-    html += '<table style="width: 100%; border-collapse: collapse; border: 1px solid #ddd;">';
-    
+
+    // 不显示标题，只生成纯表格
+    let html = '<table style="width: 100%; border-collapse: collapse; border: 1px solid #ddd;">';
+
     // 表头
     html += '<thead><tr style="background-color: #f5f5f5;">';
     headers.forEach(header => {
       html += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${header}</th>`;
     });
     html += '</tr></thead>';
-    
+
     // 表格数据
     html += '<tbody>';
     data.forEach(row => {
@@ -260,8 +262,8 @@ class VariableProcessor {
       });
       html += '</tr>';
     });
-    html += '</tbody></table></div>';
-    
+    html += '</tbody></table>';
+
     return html;
   }
 
@@ -279,7 +281,17 @@ class VariableProcessor {
 
     // 然后处理单条数据的占位符（div格式）
     const placeholderRegex = /<div[^>]*class="dataset-placeholder"[^>]*>[\s\S]*?<\/div>/g;
+
+    // 处理文档中插入的动态表格（dynamic-table类）
+    const dynamicTableRegex = /<div[^>]*class="dynamic-table"[^>]*>[\s\S]*?<\/div>/g;
     let match;
+
+    console.log(`🔍 旧处理逻辑：检查HTML中是否包含dynamic-table`);
+    if (processedHtml.includes('dynamic-table')) {
+      console.log(`📋 旧处理逻辑：HTML包含dynamic-table`);
+    } else {
+      console.log(`⚠️ 旧处理逻辑：HTML不包含dynamic-table`);
+    }
 
     const datasetStore = require('../models/DatasetStore');
 
@@ -314,8 +326,17 @@ class VariableProcessor {
         } else if (dataType === 'list' && displayFields) {
           // 列表数据 - 生成表格
           const fields = displayFields.split(',');
-          const tableHtml = this.generateMiniTable(result.data || [], fields);
-          processedHtml = processedHtml.replace(placeholderDiv, tableHtml);
+          console.log(`📋 列表数据处理: ${datasetName}, 字段: ${displayFields}, 数据行数: ${result.data?.length || 0}`);
+
+          if (result.data && result.data.length > 0) {
+            const tableHtml = this.generateMiniTable(result.data, fields);
+            processedHtml = processedHtml.replace(placeholderDiv, tableHtml);
+            console.log(`✅ 列表数据替换成功: ${datasetName}`);
+          } else {
+            // 如果没有数据，显示空表格结构而不是"无数据"
+            console.log(`⚠️ 列表数据为空: ${datasetName}`);
+            processedHtml = processedHtml.replace(placeholderDiv, '');
+          }
         } else {
           processedHtml = processedHtml.replace(placeholderDiv, '配置错误');
         }
@@ -324,6 +345,95 @@ class VariableProcessor {
       } catch (error) {
         console.error(`Error processing dataset ${datasetName}:`, error);
         processedHtml = processedHtml.replace(placeholderDiv, `<span style="color: red;">数据处理错误: ${error.message}</span>`);
+      }
+    }
+
+    // 处理动态表格占位符（文档中单独插入的列表）
+    console.log('🔍 Searching for dynamic-table elements in HTML...');
+    console.log(`🔍 HTML contains "dynamic-table": ${processedHtml.includes('dynamic-table')}`);
+
+    // 额外调试：查找所有可能的数据集相关元素
+    console.log(`🔍 HTML contains "data-dataset-name": ${processedHtml.includes('data-dataset-name')}`);
+    console.log(`🔍 HTML contains "data-display-fields": ${processedHtml.includes('data-display-fields')}`);
+
+    // 显示部分HTML内容进行调试
+    if (processedHtml.length > 1000) {
+      console.log(`🔍 HTML snippet (first 500 chars): ${processedHtml.substring(0, 500)}...`);
+      console.log(`🔍 HTML snippet (last 500 chars): ...${processedHtml.substring(processedHtml.length - 500)}`);
+    }
+
+    // 重置正则表达式的lastIndex
+    dynamicTableRegex.lastIndex = 0;
+    while ((match = dynamicTableRegex.exec(processedHtml)) !== null) {
+      const dynamicTableDiv = match[0];
+
+      // 提取数据集属性 - 支持多种属性格式
+      let datasetId = this.extractAttribute(dynamicTableDiv, 'data-dataset-id');
+      const datasetName = this.extractAttribute(dynamicTableDiv, 'data-dataset-name');
+      const displayFields = this.extractAttribute(dynamicTableDiv, 'data-display-fields');
+      let dataType = this.extractAttribute(dynamicTableDiv, 'data-data-type') ||
+                     this.extractAttribute(dynamicTableDiv, 'data-data-structure');
+
+      console.log(`📊 Processing dynamic table: ${datasetName}, dataset ID: ${datasetId}, data type: ${dataType}`);
+      console.log(`📊 Dynamic table HTML snippet: ${dynamicTableDiv.substring(0, 200)}...`);
+
+      try {
+        // 如果没有dataset-id但有datasetName，尝试通过名称查找数据集
+        if (!datasetId && datasetName) {
+          // 通过名称查找数据集ID
+          const allDatasets = datasetStore.getAllDatasets();
+          const foundDataset = allDatasets.find(ds => ds.name === datasetName);
+          if (foundDataset) {
+            datasetId = foundDataset.id;
+            console.log(`📊 Found dataset by name: ${datasetName} -> ID: ${datasetId}`);
+          }
+        }
+
+        // 如果有dataset-id或通过名称找到了数据集，使用数据集查询
+        if (datasetId && datasetName) {
+          // 获取数据集
+          const dataset = datasetStore.getDataset(datasetId);
+
+          if (!dataset) {
+            console.log(`⚠️ 数据集未找到: ${datasetName} (ID: ${datasetId})`);
+            processedHtml = processedHtml.replace(dynamicTableDiv, `<span style="color: red;">数据集未找到: ${datasetName}</span>`);
+            continue;
+          }
+
+          // 执行数据集查询
+          const result = await this.executeDatasetQuery(dataset);
+
+          // 标准化数据类型检查 (list, LIST, 或默认为list)
+          const isListType = !dataType || dataType.toLowerCase() === 'list';
+
+          if (isListType && displayFields) {
+            // 列表数据 - 生成表格
+            const fields = displayFields.split(',');
+            console.log(`📋 动态表格数据处理: ${datasetName}, 字段: ${displayFields}, 数据行数: ${result.data?.length || 0}`);
+
+            if (result.data && result.data.length > 0) {
+              const tableHtml = this.generateMiniTable(result.data, fields);
+              processedHtml = processedHtml.replace(dynamicTableDiv, tableHtml);
+              console.log(`✅ 动态表格数据替换成功: ${datasetName}`);
+            } else {
+              // 如果没有数据，显示空内容
+              console.log(`⚠️ 动态表格数据为空: ${datasetName}`);
+              processedHtml = processedHtml.replace(dynamicTableDiv, '');
+            }
+          } else {
+            console.log(`⚠️ 数据类型不是list或缺少显示字段: ${dataType}, ${displayFields}`);
+            processedHtml = processedHtml.replace(dynamicTableDiv, '配置错误');
+          }
+        } else {
+          // 如果没有找到数据集信息，记录详细信息后保持不变
+          console.log(`📊 Dynamic table missing dataset info - Name: ${datasetName}, ID: ${datasetId}, Fields: ${displayFields}`);
+          continue;
+        }
+
+        console.log(`✅ Dynamic table ${datasetName} processed`);
+      } catch (error) {
+        console.error(`Error processing dynamic table ${datasetName}:`, error);
+        processedHtml = processedHtml.replace(dynamicTableDiv, `<span style="color: red;">数据处理错误: ${error.message}</span>`);
       }
     }
 
@@ -458,14 +568,47 @@ class VariableProcessor {
    * 获取数据集的模拟数据
    */
   getMockDataForDataset(dataset) {
-    // 根据数据集名称返回相应的模拟数据
+    // 根据数据集名称返回相应的模拟数据，使用当前时间使数据看起来是实时的
+    const now = new Date();
+    const formatDate = (daysAgo = 0) => {
+      const date = new Date(now);
+      date.setDate(date.getDate() - daysAgo);
+      return date.toISOString();
+    };
+
     const mockDataMap = {
       '模板列表': dataset.type === 'single'
-        ? [{ id: 1, name: '安全审计报告模板', createdAt: '2024-01-15', updatedAt: '2024-01-20', status: '已发布' }]
+        ? [{
+            id: 'template_' + now.getTime() + '_' + Math.random().toString(36).substr(2, 9),
+            name: 'API接口专题审计',
+            createdAt: formatDate(0)
+          }]
         : [
-            { id: 1, name: '安全审计报告模板', createdAt: '2024-01-15', updatedAt: '2024-01-20', status: '已发布' },
-            { id: 2, name: '接口安全评估表', createdAt: '2024-01-16', updatedAt: '2024-01-21', status: '草稿' },
-            { id: 3, name: '漏洞扫描报告', createdAt: '2024-01-17', updatedAt: '2024-01-22', status: '已发布' }
+            {
+              id: 'template_' + now.getTime() + '_' + Math.random().toString(36).substr(2, 9),
+              name: 'API接口专题审计',
+              createdAt: formatDate(0)
+            },
+            {
+              id: 'template_' + (now.getTime() - 86400000) + '_' + Math.random().toString(36).substr(2, 9),
+              name: '省公司涉敏专题审计报告',
+              createdAt: formatDate(1)
+            },
+            {
+              id: 'template_' + (now.getTime() - 172800000) + '_' + Math.random().toString(36).substr(2, 9),
+              name: '数据安全风险评估报告',
+              createdAt: formatDate(2)
+            },
+            {
+              id: 'template_' + (now.getTime() - 259200000) + '_' + Math.random().toString(36).substr(2, 9),
+              name: '网络安全等级保护测评',
+              createdAt: formatDate(3)
+            },
+            {
+              id: 'template_' + (now.getTime() - 345600000) + '_' + Math.random().toString(36).substr(2, 9),
+              name: '系统漏洞扫描报告',
+              createdAt: formatDate(4)
+            }
           ],
       '审计数据': [
         { audit_name: '2024年第一季度安全审计', audit_date: '2024-03-31', risk_level: '高', department: '信息安全部', rectification_status: '整改中' },
@@ -495,17 +638,47 @@ class VariableProcessor {
     const dom = new JSDOM(html);
     const document = dom.window.document;
 
-    // 查找所有列表数据的起始占位符
+    // 查找所有列表数据的起始占位符（表格中插入的列表）
     const startPlaceholders = document.querySelectorAll('.dataset-placeholder-start');
+
+    // 同时查找文档中插入的动态表格列表
+    const dynamicTables = document.querySelectorAll('.dynamic-table');
+    console.log(`🔍 Found ${dynamicTables.length} dynamic-table elements and ${startPlaceholders.length} placeholder-start elements`);
+
+    // 调试：显示HTML片段
+    if (html.includes('dynamic-table')) {
+      console.log(`📋 HTML contains dynamic-table class`);
+      const snippet = html.substring(html.indexOf('dynamic-table') - 100, html.indexOf('dynamic-table') + 200);
+      console.log(`📋 HTML snippet around dynamic-table: ${snippet}`);
+    } else {
+      console.log(`⚠️ HTML does not contain dynamic-table class`);
+    }
+
+    // 合并两种类型的占位符进行统一处理
+    const allPlaceholders = [...startPlaceholders, ...dynamicTables];
 
     const datasetStore = require('../models/DatasetStore');
 
-    for (const placeholder of startPlaceholders) {
-      const datasetId = placeholder.getAttribute('data-dataset-id');
+    for (const placeholder of allPlaceholders) {
+      let datasetId = placeholder.getAttribute('data-dataset-id');
       const datasetName = placeholder.getAttribute('data-dataset-name');
-      const displayFields = placeholder.getAttribute('data-display-fields');
+      let displayFields = placeholder.getAttribute('data-display-fields');
 
-      console.log(`📊 Processing list dataset: ${datasetName}`);
+      // 检测占位符类型
+      const isStartPlaceholder = placeholder.classList.contains('dataset-placeholder-start');
+      const isDynamicTable = placeholder.classList.contains('dynamic-table');
+
+      console.log(`📊 Processing ${isDynamicTable ? 'dynamic table' : 'list dataset'}: ${datasetName}`);
+
+      // 如果是动态表格但没有datasetId，尝试通过名称查找
+      if (isDynamicTable && !datasetId && datasetName) {
+        const allDatasets = datasetStore.getAllDatasets();
+        const foundDataset = allDatasets.find(ds => ds.name === datasetName);
+        if (foundDataset) {
+          datasetId = foundDataset.id;
+          console.log(`📊 Found dataset by name: ${datasetName} -> ID: ${datasetId}`);
+        }
+      }
 
       try {
         // 获取数据集
@@ -522,6 +695,16 @@ class VariableProcessor {
         if (result && result.data && result.data.length > 0) {
           const fields = displayFields ? displayFields.split(',') : dataset.fields;
 
+          if (isDynamicTable) {
+            // 处理文档中插入的动态表格
+            console.log(`📋 Dynamic table data processing: ${datasetName}, fields: ${fields.join(',')}, rows: ${result.data.length}`);
+            const tableHtml = this.generateMiniTable(result.data, fields);
+            placeholder.outerHTML = tableHtml;
+            console.log(`✅ Dynamic table data replaced successfully: ${datasetName}`);
+            continue;
+          }
+
+          // 处理表格中插入的列表（原有逻辑）
           // 找到包含占位符的表格单元格
           const cell = placeholder.closest('td') || placeholder.closest('th');
           if (!cell) continue;
@@ -578,10 +761,16 @@ class VariableProcessor {
           remainingPlaceholders.forEach(p => p.remove());
 
         } else {
-          placeholder.innerHTML = '无数据';
+          // 处理无数据情况
+          if (isDynamicTable) {
+            console.log(`⚠️ Dynamic table data is empty: ${datasetName}`);
+            placeholder.outerHTML = '';  // 移除动态表格
+          } else {
+            placeholder.innerHTML = '无数据';
+          }
         }
 
-        console.log(`✅ List dataset ${datasetName} processed with ${result.data ? result.data.length : 0} rows`);
+        console.log(`✅ ${isDynamicTable ? 'Dynamic table' : 'List dataset'} ${datasetName} processed with ${result.data ? result.data.length : 0} rows`);
       } catch (error) {
         console.error(`Error processing list dataset ${datasetName}:`, error);
         placeholder.innerHTML = `<span style="color: red;">数据处理错误</span>`;
@@ -595,24 +784,25 @@ class VariableProcessor {
    * 生成小型表格HTML
    */
   generateMiniTable(data, fields) {
+    // 如果没有数据，返回空内容，不显示"无数据"
     if (!data || data.length === 0) {
-      return '<span>无数据</span>';
+      return '';
     }
 
-    let html = '<table style="border-collapse: collapse; border: 1px solid #ddd;">';
+    let html = '<table style="border-collapse: collapse; border: 1px solid #ddd; width: 100%;">';
 
     // 表头
     html += '<tr>';
     fields.forEach(field => {
-      html += `<th style="border: 1px solid #ddd; padding: 4px; background: #f5f5f5;">${field}</th>`;
+      html += `<th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5; text-align: left;">${field}</th>`;
     });
     html += '</tr>';
 
-    // 数据行
-    data.slice(0, 5).forEach(row => {
+    // 数据行 - 显示所有数据，不限制条数
+    data.forEach(row => {
       html += '<tr>';
       fields.forEach(field => {
-        html += `<td style="border: 1px solid #ddd; padding: 4px;">${row[field] || '-'}</td>`;
+        html += `<td style="border: 1px solid #ddd; padding: 8px;">${row[field] || '-'}</td>`;
       });
       html += '</tr>';
     });
